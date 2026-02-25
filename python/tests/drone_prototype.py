@@ -122,7 +122,7 @@ class Drone:
 
     def update(self, dt):
         self.aa = self.T / self.I
-        self.av += self.aa * dt * .8
+        self.av += self.aa * dt
         self.angle += self.av * dt
 
         self.a = (self.F / self.M) + self.g
