@@ -49,6 +49,25 @@ def create_thruster(width, height, color, meters_to_pixels):
     surface = pg.transform.smoothscale(big, (int(width), int(height)))
     return surface
 
+class Particle:
+    def __init__(self, pos, vel, lifetime):
+        self.pos = np.array(pos, dtype=float)
+        self.vel = np.array(vel, dtype=float)
+        self.lifetime = lifetime
+        self.max_lifetime = lifetime
+
+    def update(self, dt):
+        self.pos += self.vel * dt
+        self.lifetime -= dt
+
+    @property
+    def alive(self):
+        return self.lifetime > 0
+
+    @property
+    def alpha(self):
+        return int(255 * (self.lifetime / self.max_lifetime))
+
 class Drone:
     def __init__(self, pos, meters_to_pixels, surface_height):
         # state
@@ -85,8 +104,10 @@ class Drone:
 
         # surfaces
         self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
-        self.thruster_off = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (175, 175, 175), self.mtp)
-        self.thruster_on = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (230, 100, 100), self.mtp)
+        self.thruster = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (175, 175, 175), self.mtp)
+
+        # particles
+        self.particles = []
 
     def handle_input(self, keys, dt):
         if keys[pg.K_a]:
@@ -121,6 +142,8 @@ class Drone:
         self.T = self.tau1 + self.tau2
 
     def update(self, dt):
+        self.calculate_forces()
+
         self.aa = self.T / self.I
         self.av += self.aa * dt
         self.angle += self.av * dt
@@ -129,23 +152,46 @@ class Drone:
         self.v += self.a * dt
         self.pos += self.v * dt
 
-    def draw(self, screen):
+    def draw(self, screen, dt):
         pos_pix = m_to_pixel_position(self.pos, self.surface_height, self.mtp)
 
-        # body
+        # thrusetr position calculations
+        t1pos = self.pos - rotate_vector(self.thruster_offset, self.angle)
+        t2pos = self.pos + rotate_vector(self.thruster_offset, self.angle)
+
+        # draw particles
+        if self.t1_thrust:
+            self.spawn_particles(t1pos, self.t1angle + self.angle)
+
+        if self.t2_thrust:
+            self.spawn_particles(t2pos, self.t2angle + self.angle)
+
+        self.particles = [p for p in self.particles if p.alive]
+        for p in self.particles:
+            p.update(dt)  # or pass dt into draw
+            pix = m_to_pixel_position(p.pos, self.surface_height, self.mtp)
+            color = (255, 150, 50, p.alpha)
+            pg.draw.circle(screen, color[:3], tuple(pix.astype(int)), max(1, int(0.07*self.mtp)))
+
+        # draw body
         rotated_body = pg.transform.rotate(self.body_surf, np.rad2deg(self.angle))
         rect = rotated_body.get_rect(center=pos_pix)
         screen.blit(rotated_body, rect)
 
-        # thrusters
-        t1_sprite = self.thruster_off if self.t1_thrust == 0 else self.thruster_on
-        t1pos = self.pos - rotate_vector(self.thruster_offset, self.angle)
+        # draw thrusters
         t1pos_pix = m_to_pixel_position(t1pos, self.surface_height, self.mtp)
-        t1_rotated = pg.transform.rotate(t1_sprite, np.rad2deg(self.t1angle) + np.rad2deg(self.angle))
+        t1_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t1angle) + np.rad2deg(self.angle))
         screen.blit(t1_rotated, t1_rotated.get_rect(center=t1pos_pix))
 
-        t2_sprite = self.thruster_off if self.t2_thrust == 0 else self.thruster_on
-        t2pos = self.pos + rotate_vector(self.thruster_offset, self.angle)
         t2pos_pix = m_to_pixel_position(t2pos, self.surface_height, self.mtp)
-        t2_rotated = pg.transform.rotate(t2_sprite, np.rad2deg(self.t2angle) + np.rad2deg(self.angle))
+        t2_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t2angle) + np.rad2deg(self.angle))
         screen.blit(t2_rotated, t2_rotated.get_rect(center=t2pos_pix))
+    
+    def spawn_particles(self, thruster_pos, thruster_world_angle):
+        # emit downward relative to thruster direction
+        direction = rotate_vector(np.array([0, -1]), thruster_world_angle)
+        for _ in range(2):  # spawn 3 per frame
+            spread = np.random.uniform(-0.1, 0.1)
+            speed = np.random.uniform(2, 5)
+            vel = rotate_vector(direction * speed + self.v/2, spread)
+            self.particles.append(Particle(thruster_pos.copy(), vel, lifetime=0.25))

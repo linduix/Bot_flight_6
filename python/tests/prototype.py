@@ -16,7 +16,7 @@ def main():
     pg.display.set_caption(config["caption"])
     clock = pg.time.Clock()
 
-    meters_to_pixels = 30
+    meters_to_pixels = 20
 
     # drone creation
     spawn_pos = np.array([config["width"]/(2*meters_to_pixels), config["height"]/(2*meters_to_pixels)])
@@ -33,11 +33,9 @@ def main():
 
         # Black background
         screen.fill((20, 20, 20))
-
         drone.handle_input(keys, dt)
-        drone.calculate_forces()
         drone.update(dt)
-        drone.draw(screen)
+        drone.draw(screen, dt)
 
         pg.display.flip()
 
