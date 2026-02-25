@@ -52,6 +52,8 @@ def create_thruster(width, height, color, meters_to_pixels):
 class Drone:
     def __init__(self, pos, meters_to_pixels, surface_height):
         # state
+        self.F = np.array([0.0, 0.0]) # Net force
+        self.T = 0.0 # Net tourque
         # Metres
         self.pos = np.array(pos, dtype=float)
         self.v = np.array([0.0, 0.0])
@@ -79,7 +81,7 @@ class Drone:
         self.thruster_offset = np.array([self.size[0] / 2, 0.0])
         self.thruster_rotation_speed = np.deg2rad(120)
         self.thruster_max_angle = (np.deg2rad(-60), np.deg2rad(60))
-        self.thruster_force = 9.81 * self.M * 0.7
+        self.thruster_force = 9.81 * self.M * 0.9
 
         # surfaces
         self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
@@ -107,12 +109,23 @@ class Drone:
         else:
             self.t2_thrust = 0
 
-    def update(self, dt):
+    def calculate_forces(self):
+        # relative thruster forces
+        f1 = rotate_vector(np.array([0, self.t1_thrust * self.thruster_force]), self.t1angle)
+        f2 = rotate_vector(np.array([0, self.t2_thrust * self.thruster_force]), self.t2angle)
+        self.F = rotate_vector(f1 + f2, self.angle)
 
-        self.av += self.aa * dt
+        # relative tourque forces
+        self.tau1 = np.cross(-self.thruster_offset, f1)
+        self.tau2 = np.cross(self.thruster_offset, f2)
+        self.T = self.tau1 + self.tau2
+
+    def update(self, dt):
+        self.aa = self.T / self.I
+        self.av += self.aa * dt * .8
         self.angle += self.av * dt
 
-        self.a = self.g
+        self.a = (self.F / self.M) + self.g
         self.v += self.a * dt
         self.pos += self.v * dt
 

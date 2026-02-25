@@ -16,33 +16,34 @@ def main():
     pg.display.set_caption(config["caption"])
     clock = pg.time.Clock()
 
-    meters_to_pixels = 50
+    meters_to_pixels = 30
 
     # drone creation
     spawn_pos = np.array([config["width"]/(2*meters_to_pixels), config["height"]/(2*meters_to_pixels)])
     drone = Drone(spawn_pos, meters_to_pixels, config["height"])
 
-    dt = 0
     running = True
     while running:
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 running = False
 
+        dt = clock.tick(60) / 1000
         keys = pg.key.get_pressed()
 
         # Black background
         screen.fill((20, 20, 20))
 
         drone.handle_input(keys, dt)
+        drone.calculate_forces()
         drone.update(dt)
         drone.draw(screen)
 
         pg.display.flip()
-        dt = clock.tick(60) / 1000
 
     pg.quit()
     sys.exit()
 
 if __name__ == "__main__":
     main()
+ 
