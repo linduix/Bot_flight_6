@@ -1,0 +1,138 @@
+import pygame as pg
+import numpy as np
+
+def rotate_vector(v, angle):
+    # rotation Matrix:
+        # x' = x·cos(θ) - y·sin(θ)
+        # y' = x·sin(θ) + y·cos(θ)
+    cos_a = np.cos(angle)
+    sin_a = np.sin(angle)
+    R = np.array([[cos_a, -sin_a],
+                  [sin_a, cos_a]])
+    return R @ v
+
+def m_to_pixel_position(position: np.ndarray, surface_height, meters_to_pixels):
+    position = position * meters_to_pixels
+    return np.array([position[0], surface_height - position[1]])
+
+def create_drone(width, height, meters_to_pixels):
+    width *= meters_to_pixels
+    height *= meters_to_pixels
+    scale = 10
+    pad = int(height*1.75*2)
+    big = pg.Surface((int(width*scale), int(pad*scale)), pg.SRCALPHA)
+
+    # body rectangle
+    pg.draw.rect(big, (220, 220, 220), (0, int((pad//2-height//2)*scale), int(width*scale), int(height*scale)))
+
+    # center circle
+    pg.draw.circle(big, (220, 220, 220), (int(width*scale//2), int(pad*scale//2)), int(height*1.75*scale))
+
+    # top circle
+    pg.draw.circle(big, (230, 100, 100), (int(width*scale//2), int((pad//2-height//1.5)*scale)), int(height*0.4*scale))
+
+    surface = pg.transform.smoothscale(big, (int(width), int(pad)))
+    return surface
+
+def create_thruster(width, height, color, meters_to_pixels):
+    scale = 10
+    width *= meters_to_pixels
+    height *= meters_to_pixels
+    big = pg.Surface((int(width*scale), int(height*scale)), pg.SRCALPHA)
+    points = [
+        (0, 0),
+        (int(width*scale), 0),
+        (int(width*scale * 3//4), int(height*scale)),
+        (int(width*scale * 1//4), int(height*scale)),
+    ]
+    pg.draw.polygon(big, color, points)
+    surface = pg.transform.smoothscale(big, (int(width), int(height)))
+    return surface
+
+class Drone:
+    def __init__(self, pos, meters_to_pixels, surface_height):
+        # state
+        # Metres
+        self.pos = np.array(pos, dtype=float)
+        self.v = np.array([0.0, 0.0])
+        self.a = np.array([0.0, 0.0])
+        # Rads
+        self.angle = 0.0
+        self.av = 0.0
+        self.aa = 0.0
+        # thruster angles (relative to drone)
+        self.t1angle = 0.0
+        self.t2angle = 0.0
+        # thruster thrusts
+        self.t1_thrust = 0.0
+        self.t2_thrust = 0.0
+
+        # constants
+        self.mtp = meters_to_pixels
+        self.surface_height = surface_height
+        self.size = (2, 0.175) # Meters
+
+        self.g = np.array([0.0, -9.81])
+        self.M = 4     # Kg
+        self.I = 2.383 # Kg*m2
+
+        self.thruster_offset = np.array([self.size[0] / 2, 0.0])
+        self.thruster_rotation_speed = np.deg2rad(120)
+        self.thruster_max_angle = (np.deg2rad(-60), np.deg2rad(60))
+        self.thruster_force = 9.81 * self.M * 0.7
+
+        # surfaces
+        self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
+        self.thruster_off = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (175, 175, 175), self.mtp)
+        self.thruster_on = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (230, 100, 100), self.mtp)
+
+    def handle_input(self, keys, dt):
+        if keys[pg.K_a]:
+            self.t1angle += self.thruster_rotation_speed * dt
+        if keys[pg.K_s]:
+            self.t1angle -= self.thruster_rotation_speed * dt
+        self.t1angle = np.clip(self.t1angle, *self.thruster_max_angle)
+        if keys[pg.K_w]:
+            self.t1_thrust = 1
+        else:
+            self.t1_thrust = 0
+
+        if keys[pg.K_LEFT]:
+            self.t2angle += self.thruster_rotation_speed * dt
+        if keys[pg.K_RIGHT]:
+            self.t2angle -= self.thruster_rotation_speed * dt
+        self.t2angle = np.clip(self.t2angle, *self.thruster_max_angle)
+        if keys[pg.K_UP]:
+            self.t2_thrust = 1
+        else:
+            self.t2_thrust = 0
+
+    def update(self, dt):
+
+        self.av += self.aa * dt
+        self.angle += self.av * dt
+
+        self.a = self.g
+        self.v += self.a * dt
+        self.pos += self.v * dt
+
+    def draw(self, screen):
+        pos_pix = m_to_pixel_position(self.pos, self.surface_height, self.mtp)
+
+        # body
+        rotated_body = pg.transform.rotate(self.body_surf, np.rad2deg(self.angle))
+        rect = rotated_body.get_rect(center=pos_pix)
+        screen.blit(rotated_body, rect)
+
+        # thrusters
+        t1_sprite = self.thruster_off if self.t1_thrust == 0 else self.thruster_on
+        t1pos = self.pos - rotate_vector(self.thruster_offset, self.angle)
+        t1pos_pix = m_to_pixel_position(t1pos, self.surface_height, self.mtp)
+        t1_rotated = pg.transform.rotate(t1_sprite, np.rad2deg(self.t1angle) + np.rad2deg(self.angle))
+        screen.blit(t1_rotated, t1_rotated.get_rect(center=t1pos_pix))
+
+        t2_sprite = self.thruster_off if self.t2_thrust == 0 else self.thruster_on
+        t2pos = self.pos + rotate_vector(self.thruster_offset, self.angle)
+        t2pos_pix = m_to_pixel_position(t2pos, self.surface_height, self.mtp)
+        t2_rotated = pg.transform.rotate(t2_sprite, np.rad2deg(self.t2angle) + np.rad2deg(self.angle))
+        screen.blit(t2_rotated, t2_rotated.get_rect(center=t2pos_pix))
