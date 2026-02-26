@@ -26,9 +26,9 @@ def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.8, m
     for connection in connections:
         roll = np.random.rand()
         # 10% chance for nothing, 72% nudge, 8% reset
-        if roll < mutation_rate * .08:
+        if roll < mutation_rate * .1:
             connection.weight = np.random.uniform(-1, 1)
-        elif roll < mutation_rate * .8:
+        elif roll < mutation_rate:
             connection.weight += np.random.normal(0, mutation_strength)
 
 def add_connection(nodes: list[NodeGene], connections: list[ConnectionGene], innovations: Innovations):
