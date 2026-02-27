@@ -49,3 +49,44 @@ def crossover(genome1: Genome, genome2: Genome):
         baby.nodes.append(node)
 
     return baby
+
+def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4):
+    if genome1.connections == [] or genome2.connections == []:
+        raise ValueError("Both genomes need atleast 1 connection")
+
+    # innvoations in genomes
+    g1_connections = {c.innovation: c for c in genome1.connections}
+    g2_connections = {c.innovation: c for c in genome2.connections}
+
+    # max innovation vals for both
+    g1_max, g2_max = max(g1_connections.keys()), max(g2_connections.keys())
+    lower_bound = min(g1_max, g2_max)
+
+    # number of genes in bigger genome, larger than max innovation of smaller genome
+    bigger = g1_connections if g1_max >= g2_max else g2_connections
+    Excess = sum(1 for innovation in bigger.keys() if innovation > lower_bound)
+    
+    # number of genes less than the lowerbound in xor genes
+    different = g1_connections.keys() ^ g2_connections.keys()
+    Disjoint = sum(1 for innovation in different if innovation <= lower_bound)
+
+    # average weight difference of matching genes
+    Weight = 0
+    matching = g1_connections.keys() & g2_connections.keys()
+    if len(matching) > 0:
+        for node in matching:
+            weight1 = g1_connections[node].weight
+            weight2 = g2_connections[node].weight
+
+            Weight += abs(weight1 - weight2)
+            
+        # average the weight differences
+        Weight /= len(matching)
+
+    # distance = (c1 * E + c2 * D) / N + c3 * W | where N is number of connections in bigger genome
+    distance = (c1 * Excess + c2 * Disjoint) / max(len(g1_connections), len(g2_connections)) + c3 * Weight
+
+    return distance
+
+def speciate(threshold):
+    pass

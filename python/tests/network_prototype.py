@@ -25,7 +25,7 @@ class NeatNN:
 
     def topo_sort(self):
         nodes = [n.id for n in self.genome.nodes if n.node_type != NodeType.OUTPUT]
-        outputs = [n.id for n in self.genome.nodes if n.node_type == NodeType.OUTPUT]
+        outputs = set(n.id for n in self.genome.nodes if n.node_type == NodeType.OUTPUT)
         connections = [(c.input, c.output) for c in self.genome.connections if c.enabled]
 
         # kahn's algorithm
@@ -38,6 +38,11 @@ class NeatNN:
         queue = [n for n in nodes if in_degree[n] == 0]
         sorted_nodes = []
 
+        # pre map input nodes to their outputs
+        outgoing = {n: [] for n in nodes}
+        for input, output in connections:
+            outgoing[input].append(output)
+
         while True:
             # once out of targets
             if not queue:
@@ -48,18 +53,19 @@ class NeatNN:
             # move node from queue to sorted
             node = queue.pop(0)
             sorted_nodes.append(node)
-            # go through connections and reduce degrees for nodes that it outputs to
-            for input, output in connections:
+
+            # go through node outputs and decrement their in degree
+            for output in outgoing[node]:
                 # skip network outputs
                 if output in outputs:
                     continue
 
-                if input == node:
-                    in_degree[output] -= 1
-                    # if new 0 degree nodes discovered, add to queue
-                    if in_degree[output] == 0:
-                        queue.append(output)
-        
+                in_degree[output] -= 1
+                # if new 0 degree nodes discovered, add to queue
+                if in_degree[output] == 0:
+                    queue.append(output)
+            
+
         sorted_nodes += outputs
         return sorted_nodes
 
