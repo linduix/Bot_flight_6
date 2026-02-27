@@ -35,13 +35,13 @@ class Genome:
 
     @classmethod
     def new(cls):
-
+        # pre populate input and output nodes
         nodes = [NodeGene(i, NodeType.INPUT) for i in range(9)]
         nodes += [NodeGene(i, NodeType.OUTPUT) for i in range(9, 13)]
         return cls(connections=[], nodes=nodes)
 
 def create_connection(innovation, pair):
-    return ConnectionGene(innovation=innovation, 
-                          weight=np.random.uniform(-1, 1), 
-                          input=pair[0], output=pair[1], 
+    return ConnectionGene(innovation=innovation,
+                          weight=np.random.uniform(-1, 1),
+                          input=pair[0], output=pair[1],
                           enabled=True)
