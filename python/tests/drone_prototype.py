@@ -72,23 +72,8 @@ class Particle:
 
 class Drone:
     def __init__(self, pos, meters_to_pixels, surface_height):
-        # state
-        self.F = np.array([0.0, 0.0]) # Net force
-        self.T = 0.0 # Net tourque
-        # Metres
-        self.pos = np.array(pos, dtype=float)
-        self.v = np.array([0.0, 0.0])
-        self.a = np.array([0.0, 0.0])
-        # Rads
-        self.angle = 0.0
-        self.av = 0.0
-        self.aa = 0.0
-        # thruster angles (relative to drone)
-        self.t1angle = 0.0
-        self.t2angle = 0.0
-        # thruster thrusts
-        self.t1_thrust = 0.0
-        self.t2_thrust = 0.0
+        # set blank state
+        self.reset_state(pos)
 
         # constants
         self.mtp = meters_to_pixels
@@ -108,6 +93,24 @@ class Drone:
         self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
         self.thruster = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (175, 175, 175), self.mtp)
 
+    def reset_state(self, pos):
+        # state
+        self.F = np.array([0.0, 0.0]) # Net force
+        self.T = 0.0                  # Net tourque
+        # Metres
+        self.pos = np.array(pos, dtype=float)
+        self.v = np.array([0.0, 0.0])
+        self.a = np.array([0.0, 0.0])
+        # Rads
+        self.angle = 0.0
+        self.av = 0.0
+        self.aa = 0.0
+        # thruster angles (relative to drone)
+        self.t1angle = 0.0
+        self.t2angle = 0.0
+        # thruster thrusts
+        self.t1_thrust = 0.0
+        self.t2_thrust = 0.0
         # particles
         self.particles = []
 
@@ -199,11 +202,11 @@ class Drone:
             self.particles.append(Particle(thruster_pos.copy(), vel, lifetime=0.25))
 
 class Ai_Drone(Drone):
-    def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome, target: np.ndarray):
+    def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome):
         super().__init__(pos, meters_to_pixels, surface_height)
         
         self.brain = NeatNN(genome)
-        self.waypoint = target
+        self.waypoint: np.ndarray = np.array(pos, dtype=float)
 
     def handle_input(self, keys, dt):
         # pass data through brain
