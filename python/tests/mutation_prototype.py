@@ -1,4 +1,4 @@
-from genome_prototype import NodeGene, ConnectionGene, create_connection, NodeType
+from genome_prototype import NodeGene, ConnectionGene, create_connection, NodeType, Genome
 import numpy as np
 
 class Innovations:
@@ -31,13 +31,13 @@ def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.8, m
         elif roll < mutation_rate:
             connection.weight += np.random.normal(0, mutation_strength)
 
-def add_connection(nodes: list[NodeGene], connections: list[ConnectionGene], innovations: Innovations):
+def add_connection(genome: Genome, innovations: Innovations):
     # get all node ids and existing connections
-    pairs = [(c.input, c.output) for c in connections]
+    pairs = [(c.input, c.output) for c in genome.connections]
     
     # generate candidates for input / output
-    input_candidates = [n.id for n in nodes if n.node_type != NodeType.OUTPUT]
-    output_candidates = [n.id for n in nodes if n.node_type != NodeType.INPUT]
+    input_candidates = [n.id for n in genome.nodes if n.node_type != NodeType.OUTPUT]
+    output_candidates = [n.id for n in genome.nodes if n.node_type != NodeType.INPUT]
 
     # try 10 times to find a valid connection
     for _ in range(10):
@@ -46,16 +46,16 @@ def add_connection(nodes: list[NodeGene], connections: list[ConnectionGene], inn
         if (a, b) in pairs:
             continue
         innovation = innovations.resolve((a, b))
-        connections.append(create_connection(innovation, (a, b)))
+        genome.connections.append(create_connection(innovation, (a, b)))
         break
 
-def add_node(nodes: list[NodeGene], connections: list[ConnectionGene], innovations: Innovations):
-    if not connections:
+def add_node(genome: Genome, innovations: Innovations):
+    if not genome.connections:
         return
 
     # choose random connection to split
-    selected_ix = np.random.randint(len(connections))
-    selected = connections[selected_ix]
+    selected_ix = np.random.randint(len(genome.connections))
+    selected = genome.connections[selected_ix]
 
     # bail if connection is disabled
     if not selected.enabled:
@@ -64,12 +64,28 @@ def add_node(nodes: list[NodeGene], connections: list[ConnectionGene], innovatio
     # disable connection and create new node
     # connection is disabled to preserve historical lineage for speciation
     selected.enabled = False
-    nodes.append(NodeGene(id=selected.innovation, node_type=NodeType.HIDDEN))
+    genome.nodes.append(NodeGene(id=selected.innovation, node_type=NodeType.HIDDEN))
 
     # get the innovation numbers for each connection
     innovation1 = innovations.resolve((selected.input, selected.innovation))
     innovation2 = innovations.resolve((selected.innovation, selected.output))
 
     # append the new connections to genome
-    connections.append(create_connection(innovation=innovation1, pair=(selected.input, selected.innovation)))
-    connections.append(create_connection(innovation=innovation2, pair=(selected.innovation, selected.output)))
+    genome.connections.append(create_connection(innovation=innovation1, pair=(selected.input, selected.innovation)))
+    genome.connections.append(create_connection(innovation=innovation2, pair=(selected.innovation, selected.output)))
+
+def mutate(genome, innovations: Innovations):
+    # probabilities
+    add_connection_rate = .05
+    add_node_rate = .03
+
+    # mutate weights
+    mutate_weights(genome.connections)
+
+    # add connection
+    if np.random.rand() < add_connection_rate:
+        add_connection(genome, innovations)
+    
+    # add node
+    if np.random.rand() < add_node_rate:
+        add_node(genome, innovations)

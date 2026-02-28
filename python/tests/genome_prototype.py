@@ -28,7 +28,7 @@ class ConnectionGene:
 # 4 output nodes: thruster 1 turn signal, thruster 2 turn signale, thruster 1 throttle, thruster 2 throttle
 # innovation counter init at 13
 
-@dataclass
+@dataclass(eq=False)
 class Genome:
     connections: list[ConnectionGene]
     nodes: list[NodeGene]

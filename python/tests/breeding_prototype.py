@@ -1,11 +1,15 @@
+from mutation_prototype import Innovations, mutate
 from genome_prototype import Genome, ConnectionGene, NodeGene, NodeType
 import numpy as np
-from copy import copy
+from copy import copy, deepcopy
+import random
 
-def crossover(genome1: Genome, genome2: Genome):
+def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) -> Genome:
     # set parents
-    parent1 = genome1
-    parent2 = genome2
+    if score1 >= score2: 
+        parent1, parent2 = genome1, genome2
+    else:
+        parent1, parent2 = genome2, genome1
 
     # index connectienos using their innovation number per parent
     connections1: dict[int, ConnectionGene] = {c.innovation: c for c in parent1.connections}
@@ -50,7 +54,7 @@ def crossover(genome1: Genome, genome2: Genome):
 
     return baby
 
-def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4):
+def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4) -> float:
     if genome1.connections == [] or genome2.connections == []:
         raise ValueError("Both genomes need atleast 1 connection")
 
@@ -88,5 +92,79 @@ def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4):
 
     return distance
 
-def speciate(threshold):
-    pass
+def speciate(threshold, genomes: list[Genome]) -> list[list[Genome]]:
+    representatives = []
+    species = []
+
+    # loop through each genome
+    for genome in genomes:
+        # if reps empty add first genome as rep
+        if representatives == []:
+            representatives.append(genome)
+            species.append([genome])
+            continue
+
+        match = False
+        # loop through and add to rep's species if distance < threshold
+        for i, representative in enumerate(representatives):
+            if distance(genome, representative) < threshold:
+                species[i].append(genome)
+                match = True
+                break
+        
+        # if no matches found, turn it into a rep
+        if not match:
+            representatives.append(genome)
+            species.append([genome])
+
+    return species
+
+def breed(current_gen: list[Genome], scores: list[float], innovations: Innovations, poputlation=100, threshold=3.0) -> list[Genome]:
+    # map genome to scores
+    genome_scores = {genome: score for genome, score in zip(current_gen, scores)}
+    
+    # speciation sorted by score    
+    species: list[list[Genome]] = speciate(threshold, current_gen)
+    for s in species:
+        s.sort(key=lambda g: genome_scores[g], reverse=True)
+
+    # fitness sharing and average fitness per species
+    species_fitness = []
+    for s in species:
+        fitness = 0
+        for genome in s:
+            # reduce score by size of species
+            genome_scores[genome] /= len(s)
+            # add adjusted score to species fitness
+            fitness += genome_scores[genome]
+        species_fitness.append(fitness)
+            
+
+    # species quota calculation
+    quotas = []
+    total_fitness = sum(species_fitness)
+    for fitness in species_fitness:
+        # calculate quota as proportion of total fitness
+        quota = int(fitness * poputlation / total_fitness)
+        quotas.append(quota)
+
+    # breeding
+    next_gen = []
+    # elietism
+    for s in species:
+        next_gen.append(deepcopy(s[0]))
+
+    # breed rest of population
+    for i, s in enumerate(species):
+        species_scores = [genome_scores[g] for g in s]
+        for _ in range(quotas[i] - 1):
+            # choose parents
+            parent1, parent2 = random.choices(s, weights=species_scores, k=2)
+            # breed baby
+            baby = crossover(parent1, parent2, genome_scores[parent1], genome_scores[parent2])
+            # mutate baby
+            mutate(baby, innovations)
+            # add baby
+            next_gen.append(baby)
+
+    return next_gen

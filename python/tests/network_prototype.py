@@ -14,9 +14,10 @@ class NeatNN:
         
         # precalculate recurrent connections (loops)
         self.recurrent = set()
+        index = {n: ix for ix, n in enumerate(self.node_order)}
         for c in genome.connections:
             # add connection id to recurrent if output comes before input in node order
-            if c.enabled and self.node_order.index(c.output) < self.node_order.index(c.input):
+            if c.enabled and index[c.output] < index[c.input]:
                 self.recurrent.add(c.innovation)
 
         # node activation values
@@ -33,7 +34,8 @@ class NeatNN:
         # if all nodes are not removed, there is cycle and they are added at the end
         in_degree = {n: 0 for n in nodes}
         for _, output in connections:
-            in_degree[output] += 1
+            if output not in outputs:
+                in_degree[output] += 1
 
         queue = [n for n in nodes if in_degree[n] == 0]
         sorted_nodes = []
