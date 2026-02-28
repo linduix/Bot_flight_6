@@ -1,5 +1,7 @@
 import pygame as pg
 import numpy as np
+from network_prototype import NeatNN
+from genome_prototype import Genome
 
 def rotate_vector(v, angle):
     # rotation Matrix:
@@ -195,3 +197,36 @@ class Drone:
             speed = np.random.uniform(2, 5)
             vel = rotate_vector(direction * speed + self.v/2, spread)
             self.particles.append(Particle(thruster_pos.copy(), vel, lifetime=0.25))
+
+class Ai_Drone(Drone):
+    def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome, target: np.ndarray):
+        super().__init__(pos, meters_to_pixels, surface_height)
+        
+        self.brain = NeatNN(genome)
+        self.waypoint = target
+
+    def handle_input(self, keys, dt):
+        # pass data through brain
+        outputs = self.brain.forward(
+            delta_x = self.waypoint[0] - self.pos[0],
+            delta_y = self.waypoint[1] - self.pos[1],
+            angle = self.angle,
+            vel_x = self.v[0],
+            vel_y = self.v[1],
+            angular_vel = self.av,
+            t1_angle = self.t1angle,
+            t2_angle = self.t2angle
+        )
+
+        t1turn, t2turn, t1throttle, t2throttle = outputs
+
+        # set thruster angles
+        self.t1angle += t1turn * self.thruster_rotation_speed * dt
+        self.t2angle += t2turn * self.thruster_rotation_speed * dt
+        
+        self.t1angle = np.clip(self.t1angle, *self.thruster_max_angle)
+        self.t2angle = np.clip(self.t2angle, *self.thruster_max_angle)
+
+        # set thruter throttles
+        self.t1_thrust = max(0, t1throttle)
+        self.t2_thrust = max(0, t2throttle)
