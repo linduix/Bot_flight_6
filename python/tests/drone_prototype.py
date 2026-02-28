@@ -9,9 +9,8 @@ def rotate_vector(v, angle):
         # y' = x·sin(θ) + y·cos(θ)
     cos_a = np.cos(angle)
     sin_a = np.sin(angle)
-    R = np.array([[cos_a, -sin_a],
-                  [sin_a, cos_a]])
-    return R @ v
+    return np.array([v[0]*cos_a - v[1]*sin_a,
+                     v[0]*sin_a + v[1]*cos_a])
 
 def m_to_pixel_position(position: np.ndarray, surface_height, meters_to_pixels):
     position = position * meters_to_pixels
@@ -52,11 +51,12 @@ def create_thruster(width, height, color, meters_to_pixels):
     return surface
 
 class Particle:
-    def __init__(self, pos, vel, lifetime):
+    def __init__(self, pos, vel, lifetime, starting_a=255):
         self.pos = np.array(pos, dtype=float)
         self.vel = np.array(vel, dtype=float)
         self.lifetime = lifetime
         self.max_lifetime = lifetime
+        self.starting_a = starting_a
 
     def update(self, dt):
         self.pos += self.vel * dt
@@ -68,7 +68,7 @@ class Particle:
 
     @property
     def alpha(self):
-        return int(255 * (self.lifetime / self.max_lifetime))
+        return int(self.starting_a * (self.lifetime / self.max_lifetime))
 
 class Drone:
     def __init__(self, pos, meters_to_pixels, surface_height):
@@ -88,6 +88,9 @@ class Drone:
         self.thruster_rotation_speed = np.deg2rad(120)
         self.thruster_max_angle = (np.deg2rad(-60), np.deg2rad(60))
         self.thruster_force = 9.81 * self.M * 0.9
+
+        # particle amount
+        self.particle_count = 3
 
         # surfaces
         self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
@@ -137,13 +140,27 @@ class Drone:
 
     def calculate_forces(self):
         # relative thruster forces
-        f1 = rotate_vector(np.array([0, self.t1_thrust * self.thruster_force]), self.t1angle)
-        f2 = rotate_vector(np.array([0, self.t2_thrust * self.thruster_force]), self.t2angle)
-        self.F = rotate_vector(f1 + f2, self.angle)
+        # f1 = rotate_vector(np.array([0, self.t1_thrust * self.thruster_force]), self.t1angle)
+        # f2 = rotate_vector(np.array([0, self.t2_thrust * self.thruster_force]), self.t2angle)
+        # self.F = rotate_vector(f1 + f2, self.angle)
+
+        # f1 rotation
+        f1x = -(self.t1_thrust * self.thruster_force) * np.sin(self.t1angle)
+        f1y =  (self.t1_thrust * self.thruster_force) * np.cos(self.t1angle)
+
+        # f2 rotation
+        f2x = -(self.t2_thrust * self.thruster_force) * np.sin(self.t2angle)
+        f2y =  (self.t2_thrust * self.thruster_force) * np.cos(self.t2angle)
+
+        # combined force rotated by drone angle
+        cos_a = np.cos(self.angle)
+        sin_a = np.sin(self.angle)
+        self.F = np.array([(f1x+f2x)*cos_a - (f1y+f2y)*sin_a,
+                        (f1x+f2x)*sin_a + (f1y+f2y)*cos_a])
 
         # relative tourque forces
-        self.tau1 = np.cross(-self.thruster_offset, f1)
-        self.tau2 = np.cross(self.thruster_offset, f2)
+        self.tau1 = -self.thruster_offset[0]*f1y + self.thruster_offset[1]*f1x
+        self.tau2 =  self.thruster_offset[0]*f2y - self.thruster_offset[1]*f2x
         self.T = self.tau1 + self.tau2
 
     def update(self, dt):
@@ -157,19 +174,41 @@ class Drone:
         self.v += self.a * dt
         self.pos += self.v * dt
 
-    def draw(self, screen, dt):
+    def draw_body(self, screen, a=255):
         pos_pix = m_to_pixel_position(self.pos, self.surface_height, self.mtp)
 
         # thrusetr position calculations
         t1pos = self.pos - rotate_vector(self.thruster_offset, self.angle)
         t2pos = self.pos + rotate_vector(self.thruster_offset, self.angle)
 
+        # draw body
+        rotated_body = pg.transform.rotate(self.body_surf, np.rad2deg(self.angle))
+        rotated_body.set_alpha(a)
+        rect = rotated_body.get_rect(center=pos_pix)
+        screen.blit(rotated_body, rect)
+
+        # draw thrusters
+        t1pos_pix = m_to_pixel_position(t1pos, self.surface_height, self.mtp)
+        t1_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t1angle) + np.rad2deg(self.angle))
+        t1_rotated.set_alpha(a)
+        screen.blit(t1_rotated, t1_rotated.get_rect(center=t1pos_pix))
+
+        t2pos_pix = m_to_pixel_position(t2pos, self.surface_height, self.mtp)
+        t2_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t2angle) + np.rad2deg(self.angle))
+        t2_rotated.set_alpha(a)
+        screen.blit(t2_rotated, t2_rotated.get_rect(center=t2pos_pix))
+    
+    def draw_particles(self, screen, dt, a=255):
+        # thrusetr position calculations
+        t1pos = self.pos - rotate_vector(self.thruster_offset, self.angle)
+        t2pos = self.pos + rotate_vector(self.thruster_offset, self.angle)
+
         # draw particles
         if self.t1_thrust:
-            self.spawn_particles(t1pos, self.t1angle + self.angle)
+            self.spawn_particles(t1pos, self.t1angle + self.angle, a)
 
         if self.t2_thrust:
-            self.spawn_particles(t2pos, self.t2angle + self.angle)
+            self.spawn_particles(t2pos, self.t2angle + self.angle, a)
 
         self.particles = [p for p in self.particles if p.alive]
         for p in self.particles:
@@ -178,35 +217,26 @@ class Drone:
             color = (255, 150, 50, p.alpha)
             pg.draw.circle(screen, color[:3], tuple(pix.astype(int)), max(1, int(0.07*self.mtp)))
 
-        # draw body
-        rotated_body = pg.transform.rotate(self.body_surf, np.rad2deg(self.angle))
-        rect = rotated_body.get_rect(center=pos_pix)
-        screen.blit(rotated_body, rect)
-
-        # draw thrusters
-        t1pos_pix = m_to_pixel_position(t1pos, self.surface_height, self.mtp)
-        t1_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t1angle) + np.rad2deg(self.angle))
-        screen.blit(t1_rotated, t1_rotated.get_rect(center=t1pos_pix))
-
-        t2pos_pix = m_to_pixel_position(t2pos, self.surface_height, self.mtp)
-        t2_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t2angle) + np.rad2deg(self.angle))
-        screen.blit(t2_rotated, t2_rotated.get_rect(center=t2pos_pix))
-    
-    def spawn_particles(self, thruster_pos, thruster_world_angle):
+    def spawn_particles(self, thruster_pos, thruster_world_angle, start_a=255):
         # emit downward relative to thruster direction
         direction = rotate_vector(np.array([0, -1]), thruster_world_angle)
-        for _ in range(2):  # spawn 3 per frame
+        for _ in range(self.particle_count):
             spread = np.random.uniform(-0.1, 0.1)
             speed = np.random.uniform(2, 5)
             vel = rotate_vector(direction * speed + self.v/2, spread)
-            self.particles.append(Particle(thruster_pos.copy(), vel, lifetime=0.25))
+            self.particles.append(Particle(thruster_pos.copy(), vel, lifetime=0.25, starting_a=start_a))
 
 class Ai_Drone(Drone):
     def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome):
         super().__init__(pos, meters_to_pixels, surface_height)
-        
+
         self.brain = NeatNN(genome)
         self.waypoint: np.ndarray = np.array(pos, dtype=float)
+        self.enabled = True
+
+    def reset_state(self, pos):
+        return super().reset_state(pos)
+        self.enabled = True
 
     def handle_input(self, keys, dt):
         # pass data through brain
@@ -226,9 +256,10 @@ class Ai_Drone(Drone):
         # set thruster angles
         self.t1angle += t1turn * self.thruster_rotation_speed * dt
         self.t2angle += t2turn * self.thruster_rotation_speed * dt
-        
-        self.t1angle = np.clip(self.t1angle, *self.thruster_max_angle)
-        self.t2angle = np.clip(self.t2angle, *self.thruster_max_angle)
+
+        # limit angle        
+        self.t1angle = min( max(self.t1angle, self.thruster_max_angle[0]), self.thruster_max_angle[0] )
+        self.t2angle = min( max(self.t2angle, self.thruster_max_angle[0]), self.thruster_max_angle[0] )
 
         # set thruter throttles
         self.t1_thrust = max(0, t1throttle)

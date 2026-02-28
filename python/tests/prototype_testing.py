@@ -182,7 +182,7 @@ def test_breed():
         add_connection(g, inn)
         genomes.append(g)
     scores = [np.random.rand() for _ in genomes]
-    next_generation = breed(genomes, scores, inn, poputlation=20)
+    next_generation = breed(genomes, scores, inn, poputlation_size=20)
     assert len(next_generation) > 0
 
 test("crossover() produces valid child", test_crossover)

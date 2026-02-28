@@ -119,14 +119,16 @@ def speciate(threshold, genomes: list[Genome]) -> list[list[Genome]]:
 
     return species
 
-def breed(current_gen: list[Genome], scores: list[float], innovations: Innovations, poputlation=100, threshold=3.0) -> list[Genome]:
+def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovations: Innovations, poputlation_size: int, threshold=3.0):
     # map genome to scores
     genome_scores = {genome: score for genome, score in zip(current_gen, scores)}
     
     # speciation sorted by score    
     species: list[list[Genome]] = speciate(threshold, current_gen)
-    for s in species:
+    for i, s in enumerate(species):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
+        # cull the worst half of the species
+        species[i] = s[:max(1, len(s)//2)]
 
     # fitness sharing and average fitness per species
     species_fitness = []
@@ -138,18 +140,17 @@ def breed(current_gen: list[Genome], scores: list[float], innovations: Innovatio
             # add adjusted score to species fitness
             fitness += genome_scores[genome]
         species_fitness.append(fitness)
-            
 
     # species quota calculation
     quotas = []
     total_fitness = sum(species_fitness)
     for fitness in species_fitness:
         # calculate quota as proportion of total fitness
-        quota = int(fitness * poputlation / total_fitness)
+        quota = int(fitness * poputlation_size / total_fitness)
         quotas.append(quota)
 
     # breeding
-    next_gen = []
+    next_gen: list[Genome] = []
     # elietism
     for s in species:
         next_gen.append(deepcopy(s[0]))
@@ -166,5 +167,6 @@ def breed(current_gen: list[Genome], scores: list[float], innovations: Innovatio
             mutate(baby, innovations)
             # add baby
             next_gen.append(baby)
-
-    return next_gen
+    
+    species = speciate(threshold, next_gen)
+    return next_gen, species

@@ -35,7 +35,8 @@ def main():
         screen.fill((20, 20, 20))
         drone.handle_input(keys, dt)
         drone.update(dt)
-        drone.draw(screen, dt)
+        drone.draw_body(screen)
+        drone.draw_particles(screen, dt)
 
         pg.display.flip()
 
