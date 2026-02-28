@@ -258,8 +258,8 @@ class Ai_Drone(Drone):
         self.t2angle += t2turn * self.thruster_rotation_speed * dt
 
         # limit angle        
-        self.t1angle = min( max(self.t1angle, self.thruster_max_angle[0]), self.thruster_max_angle[0] )
-        self.t2angle = min( max(self.t2angle, self.thruster_max_angle[0]), self.thruster_max_angle[0] )
+        self.t1angle = min( max(self.t1angle, self.thruster_max_angle[0]), self.thruster_max_angle[1] )
+        self.t2angle = min( max(self.t2angle, self.thruster_max_angle[0]), self.thruster_max_angle[1] )
 
         # set thruter throttles
         self.t1_thrust = max(0, t1throttle)

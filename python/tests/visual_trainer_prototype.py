@@ -47,7 +47,7 @@ while True:
         screen,
         clock,
         visualize=True,
-        limit=5
+        limit=limit
     )
 
     if return_code:
@@ -64,7 +64,7 @@ while True:
     gen += 1
 
     print(f'gen: {gen} | score: {average_score*100/target_score: .2f}% | max score: {max_score*100/target_score: .2f}% |', 
-          f'target score: {target_score: .2f} | species count: {len(species)} | threshold: {threshold: .2f}')
+          f'target score: {target_score: .2f} | species count: {len(species)} | threshold: {threshold: .2f} | limit: {limit}')
     if len(species) < 10:
         threshold *= .95
     elif len(species) > 15:
