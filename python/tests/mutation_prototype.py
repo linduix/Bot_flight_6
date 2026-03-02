@@ -43,8 +43,10 @@ def add_connection(genome: Genome, innovations: Innovations):
     for _ in range(10):
         a = int(np.random.choice(input_candidates))
         b = int(np.random.choice(output_candidates))
-        if (a, b) in pairs:
+        # skip if connections exists / connecting to itself
+        if (a, b) in pairs or a == b:
             continue
+
         innovation = innovations.resolve((a, b))
         genome.connections.append(create_connection(innovation, (a, b)))
         break

@@ -40,6 +40,12 @@ class Genome:
         nodes += [NodeGene(i, NodeType.OUTPUT) for i in range(9, 13)]
         return cls(connections=[], nodes=nodes)
 
+    def base_connections(self, innovations):
+        for a in range(9):
+            for b in range(9, 13):
+                innovation = innovations.resolve((a, b))
+                self.connections.append(create_connection(innovation, (a, b)))
+
 def create_connection(innovation, pair):
     return ConnectionGene(innovation=innovation,
                           weight=np.random.uniform(-1, 1),

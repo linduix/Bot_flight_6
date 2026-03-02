@@ -1,1 +1,4 @@
-python/tests/__pycache__
+python/tests/__pycache__/*
+python/tests/__pycache__/breeding_prototype.cpython-310.pyc
+python/tests/__pycache__/drone_prototype.cpython-310.pyc
+python/tests/__pycache__/scoring_prototype.cpython-310.pyc
