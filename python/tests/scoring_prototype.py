@@ -1,8 +1,9 @@
+from numpy.random.mtrand import standard_cauchy
 from drone_prototype import Ai_Drone
 import math
 import numpy as np
 
-def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels, 
+def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels,
                  screen, clock, limit=10):
     import pygame as pg
 
@@ -11,10 +12,15 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
 
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
-    start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels, 
-                        np.random.uniform(0, screen_height) / meters_to_pixels])
+
+    # drone initialization
+    if limit >= 20:
+        start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
+                             np.random.uniform(0, screen_height) / meters_to_pixels])
+    else:
+        start_pos = target
     start_orientation = 0 if np.random.rand() < 0.5 else np.pi
-    
+
     # initialize all drones
     for drone in drones:
         drone.reset_state(start_pos)
@@ -40,7 +46,7 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
                 time = 10
                 return_code = 1
         screen.fill((20, 20, 20))
-        
+
         if return_code:
             break
 
@@ -58,7 +64,7 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
             dy = drone.pos[1] - target[1]
             dist = math.hypot(dx, dy)
 
-            score = (time + 0.1) / (1.0 + dist)  # reward smaller distances more heavily
+            score = 1 / (1.0 + dist)  # reward smaller distances more heavily
             scores[i] += score * max((1 - (abs(drone.angle)/np.deg2rad(45))), 0.9)  # penalize bad angles
 
             # disable if too far
@@ -85,7 +91,7 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
         time_surf = font.render(f"Time: {time:.1f}s", True, (255, 255, 255))
         screen.blit(fps_surf, (10, 10))
         screen.blit(time_surf, (10, 30))
-        
+
         pg.display.flip()
 
         time += dt
@@ -96,10 +102,10 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
 def hover_scorer_headless(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels, limit=10):
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
-    start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels, 
+    start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
                         np.random.uniform(0, screen_height) / meters_to_pixels])
     start_orientation = 0 if np.random.rand() < 0.5 else np.pi
-    
+
     # initialize all drones
     for drone in drones:
         drone.reset_state(start_pos)
@@ -132,9 +138,9 @@ def hover_scorer_headless(drones: list[Ai_Drone], screen_width, screen_height, m
             dy = drone.pos[1] - target[1]
             dist = math.hypot(dx, dy)
 
-            score = (time + 0.1) / (1.0 + dist)  # reward smaller distances more heavily
+            score = 1 / (1.0 + dist)  # reward smaller distances more heavily
             scores[i] += score * max((1 - (abs(drone.angle)/deg45_rads)), 0.9)  # penalize bad angles
-            
+
             # disable if too far
             if dist > distance_limit:
                 drone.enabled = False

@@ -22,7 +22,7 @@ class Innovations:
 
         return value
 
-def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.8, mutation_strength: float=.1):
+def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.8, mutation_strength: float=.5):
     for connection in connections:
         roll = np.random.rand()
         # 10% chance for nothing, 72% nudge, 8% reset
@@ -34,7 +34,7 @@ def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.8, m
 def add_connection(genome: Genome, innovations: Innovations):
     # get all node ids and existing connections
     pairs = [(c.input, c.output) for c in genome.connections]
-    
+
     # generate candidates for input / output
     input_candidates = [n.id for n in genome.nodes if n.node_type != NodeType.OUTPUT]
     output_candidates = [n.id for n in genome.nodes if n.node_type != NodeType.INPUT]
@@ -87,7 +87,7 @@ def mutate(genome, innovations: Innovations):
     # add connection
     if np.random.rand() < add_connection_rate:
         add_connection(genome, innovations)
-    
+
     # add node
     if np.random.rand() < add_node_rate:
         add_node(genome, innovations)
