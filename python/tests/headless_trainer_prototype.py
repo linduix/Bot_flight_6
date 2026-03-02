@@ -9,7 +9,7 @@ import cProfile
 import time
 
 config = {
-    "population": 1000,
+    "population": 2000,
     "width": 800,
     "height": 600,
     "meters_to_pixels": 15
@@ -41,15 +41,12 @@ if __name__ == '__main__':
     # drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
     # print('starting')
     # cProfile.run('hover_scorer_headless(drones, config["width"], config["height"], config["meters_to_pixels"], limit=5)')
+
     print('training starting...')
     try:
         limit = 5
         done = False
         while not done:
-            # save progress every 500 gens
-            if state['gen'] % 500 == 0:
-                utils.save(state)
-
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
 
@@ -70,17 +67,12 @@ if __name__ == '__main__':
                 break
 
             # calculate performance
-            target_score = iterations * .8
+            target_score = iterations * .9
             max_score = max(scores)
-            if max_score > target_score:
-                # finish if getting 90% of final target score
-                if limit >= 60 and max_score/target_score > .9:
-                    done = True
-                limit += 5
 
             # log score history
             state.setdefault('historical_score', [])
-            state['historical_score'].append(max_score)
+            state['historical_score'].append(max_score / target_score)
             # get past 10 rolling average
             rolling_average = np.average(state['historical_score'][-10:])
             # calculate improvement from roling average change
@@ -106,17 +98,30 @@ if __name__ == '__main__':
                 state['current_gen'] = next_gen
                 state['gen'] += 1
 
-
             # log training stats
-            print(f'gen: {state["gen"]} | avg score: {rolling_average*100/target_score: .2f}% | max score: {max_score*100/target_score: .1f}% |',
-                f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
+            print(f'gen: {state["gen"]} | avg score: {rolling_average*100: .2f}% | max score: {max_score*100/target_score: .1f}% |',
+                f'target score: {target_score : .0f} | improvement: {improvement*100: .1f}% | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
                 f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
+            
+            if max_score > target_score:
+                # finish if getting 90% of final target score
+                if limit >= 60 and max_score/target_score > .95:
+                    done = True
+                limit += 5
+                utils.save(state)
 
             # adjust species thresholds
             if len(species) < 10:
-                state["threshold"] *= .95
+                diff = abs(len(species) - (10+15)/2)
+                state["threshold"] *= max(1 - (diff * 0.016), 0.1)
             elif len(species) > 15:
-                state["threshold"] *= 1.05
+                diff = abs(len(species) - (10+15)/2)
+                state["threshold"] *= 1 + (diff * 0.016)
+
+            # save progress every 500 gens
+            if state['gen'] % 500 == 0:
+                utils.save(state)
+
 
         utils.save(state)
 

@@ -1,5 +1,6 @@
 from genome_prototype import Genome, NodeType, ConnectionGene
 import numpy as np
+import math
 
 class NeatNN:
     def __init__(self, genome: Genome):
@@ -72,8 +73,8 @@ class NeatNN:
         return sorted_nodes
 
     def forward(self, delta_x, delta_y, angle, vel_x, vel_y, angular_vel, t1_angle, t2_angle):
-        # copy current to previous
-        self.previous_value = self.current_value.copy()
+        # buffer swap current to previous
+        self.previous_value, self.current_value = self.current_value, self.previous_value
 
         # set input node activations
         self.current_value[0] = 1.0 # bias
@@ -104,7 +105,7 @@ class NeatNN:
                     value += self.current_value[c.input] * c.weight
             
             # go through activation function
-            activation = np.tanh(value)
+            activation = math.tanh(value)
 
             # write to current value
             self.current_value[node] = activation

@@ -18,9 +18,14 @@ def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, s
     drone.waypoint = target.copy()
 
     time = 0.0
-    distance_limit = np.sqrt(screen_height**2 + screen_width**2)
+    distance_limit = np.sqrt(screen_height**2 + screen_width**2) / meters_to_pixels
 
     while True:
+        # update target
+        target = pg.mouse.get_pos()
+        target = (target[0] / meters_to_pixels, (screen_height - target[1]) / meters_to_pixels)
+        drone.waypoint = np.array(target)
+
         # visual mode clock
         dt = clock.tick(60) / 1000
         for event in pg.event.get():
@@ -40,7 +45,7 @@ def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, s
 
         # disable if too far
         if dist > distance_limit:
-            drone.reset_state(start_pos)
+            drone.reset_state(target)
 
         # draw particles and body
         drone.draw_particles(screen, dt)

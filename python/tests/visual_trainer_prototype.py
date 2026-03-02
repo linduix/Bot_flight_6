@@ -74,17 +74,12 @@ if __name__ == '__main__':
             break
 
         # calculate performance
-        target_score = iterations * .8
+        target_score = iterations * .9
         max_score = max(scores)
-        if max_score > target_score:
-            # finish if getting 90% of final target score
-            if limit >= 60 and max_score/target_score > .9:
-                done = True
-            limit += 5
 
         # log score history
         state.setdefault('historical_score', [])
-        state['historical_score'].append(max_score)
+        state['historical_score'].append(max_score / target_score)
         # get past 10 rolling average
         rolling_average = np.average(state['historical_score'][-10:])
         # calculate improvement from roling average change
@@ -114,9 +109,15 @@ if __name__ == '__main__':
             state['gen'] += 1
 
         # log training stats
-        print(f'gen: {state["gen"]} | score: {rolling_average*100/target_score: .2f}% | target score: {target_score : .0f} |',
-            f'improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
+        print(f'gen: {state["gen"]} | score: {rolling_average*100: .2f}% | max score: {max_score*100/target_score: .1f}% | target score: {target_score : .0f} |',
+            f'improvement: {improvement*100: .1f}% | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
             f'bloat: {average_connections/rolling_average: .2f}')
+        
+        if max_score > target_score:
+            # finish if getting 90% of final target score
+            if limit >= 60 and max_score/target_score > .95:
+                done = True
+            limit += 5
 
         # adjust species thresholds
         if len(species) < 10:

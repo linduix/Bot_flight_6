@@ -31,7 +31,7 @@ def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.8, m
         elif roll < mutation_rate:
             connection.weight += np.random.normal(0, mutation_strength)
 
-def add_connection(genome: Genome, innovations: Innovations):
+def add_connection(genome: Genome, innovations: Innovations, weight=None):
     # get all node ids and existing connections
     pairs = [(c.input, c.output) for c in genome.connections]
 
@@ -48,7 +48,7 @@ def add_connection(genome: Genome, innovations: Innovations):
             continue
 
         innovation = innovations.resolve((a, b))
-        genome.connections.append(create_connection(innovation, (a, b)))
+        genome.connections.append(create_connection(innovation, (a, b), weight=weight))
         break
 
 def add_node(genome: Genome, innovations: Innovations):
@@ -73,8 +73,8 @@ def add_node(genome: Genome, innovations: Innovations):
     innovation2 = innovations.resolve((selected.innovation, selected.output))
 
     # append the new connections to genome
-    genome.connections.append(create_connection(innovation=innovation1, pair=(selected.input, selected.innovation)))
-    genome.connections.append(create_connection(innovation=innovation2, pair=(selected.innovation, selected.output)))
+    genome.connections.append(create_connection(innovation=innovation1, pair=(selected.input, selected.innovation), weight=selected.weight))
+    genome.connections.append(create_connection(innovation=innovation2, pair=(selected.innovation, selected.output), weight=selected.weight))
 
 def mutate(genome, innovations: Innovations):
     # probabilities

@@ -46,8 +46,8 @@ class Genome:
                 innovation = innovations.resolve((a, b))
                 self.connections.append(create_connection(innovation, (a, b)))
 
-def create_connection(innovation, pair):
+def create_connection(innovation, pair, weight=None):
     return ConnectionGene(innovation=innovation,
-                          weight=np.random.uniform(-1, 1),
+                          weight=weight if weight else np.random.uniform(-1, 1),
                           input=pair[0], output=pair[1],
                           enabled=True)
