@@ -121,8 +121,18 @@ def speciate(threshold, genomes: list[Genome]) -> list[list[Genome]]:
 
 def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovations: Innovations, poputlation_size: int, threshold=3.0):
     # map genome to scores
-    scores = list(scores)
-    genome_scores = {genome: score for genome, score in zip(current_gen, scores)}
+    raw_scores = list(scores)
+    adjusted_scores = [0.0] * len(raw_scores)
+
+    # penalize score for too much complexity
+    ix = 0
+    for score, g in zip(raw_scores, current_gen):
+        edges = sum([1 for c in g.connections if c.enabled])
+        nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
+        adjusted_scores[ix] = max(0.1, score - max(0, edges - 50) * 0.5 - max(0, nodes - 5) * 1)
+        ix += 1
+
+    genome_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
     
     # speciation sorted by score    
     species: list[list[Genome]] = speciate(threshold, current_gen)
@@ -163,7 +173,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             # choose parents
             parent1, parent2 = random.choices(s, weights=species_scores, k=2)
             if np.random.rand() < 0.01:
-                parent2 = random.choices(current_gen, weights=scores, k=1)[0]
+                parent2 = random.choices(current_gen, weights=adjusted_scores, k=1)[0]
             # breed baby
             baby = crossover(parent1, parent2, genome_scores[parent1], genome_scores[parent2])
             # mutate baby

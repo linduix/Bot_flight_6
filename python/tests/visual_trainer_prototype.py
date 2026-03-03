@@ -74,7 +74,7 @@ if __name__ == '__main__':
             break
 
         # calculate performance
-        target_score = iterations * .9
+        target_score = iterations * .85
         max_score = max(scores)
 
         # log score history

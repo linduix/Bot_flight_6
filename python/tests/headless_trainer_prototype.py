@@ -1,12 +1,14 @@
 from drone_prototype import Ai_Drone
 from scoring_prototype import hover_scorer_headless
 from mutation_prototype import Innovations, add_connection
-from genome_prototype import Genome
+from genome_prototype import Genome, NodeType
 from breeding_prototype import breed
 import util_prototype as utils
 import numpy as np
 import cProfile
 import time
+import pstats
+import io
 
 config = {
     "population": 2000,
@@ -46,6 +48,7 @@ if __name__ == '__main__':
     try:
         limit = 5
         done = False
+        profile = False
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -67,7 +70,7 @@ if __name__ == '__main__':
                 break
 
             # calculate performance
-            target_score = iterations * .9
+            target_score = iterations * .85
             max_score = max(scores)
 
             # log score history
@@ -91,12 +94,23 @@ if __name__ == '__main__':
             ix = np.argsort(scores)[-1]
             state['best_drone'] = state['current_gen'][ix]
 
+            if profile:
+                print('profiling')
+                pr = cProfile.Profile()
+                pr.enable()
+
             # breed next generation
             species = []
             if not return_code:
                 next_gen, species = breed(state['current_gen'], scores, state['innovations'], config["population"], threshold=state["threshold"])
                 state['current_gen'] = next_gen
                 state['gen'] += 1
+
+            if profile:
+                pr.disable() # type: ignore
+                pr.dump_stats("breed0.prof")  # type: ignore
+                print("wrote breed0.prof")
+                profile = False
 
             # log training stats
             print(f'gen: {state["gen"]} | avg score: {rolling_average*100: .2f}% | max score: {max_score*100/target_score: .1f}% |',

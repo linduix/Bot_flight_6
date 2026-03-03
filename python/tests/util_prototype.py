@@ -1,5 +1,4 @@
-from genome_prototype import Genome, NodeType
-from mutation_prototype import Innovations
+from genome_prototype import NodeType
 from pathlib import Path
 import matplotlib.pyplot as plt
 import networkx as nx

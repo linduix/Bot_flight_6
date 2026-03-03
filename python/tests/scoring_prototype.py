@@ -14,20 +14,18 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
     # drone initialization
-    # if limit >= 20:
-    #     start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
-    #                          np.random.uniform(0, screen_height) / meters_to_pixels])
-    #     start_orientation = 2*np.pi*np.random.rand()
-    # else:
-    #     start_pos = target
-    #     start_orientation = 0 
-    if limit >= 10:
+    if limit >= 40:
+        start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
+                             np.random.uniform(0, screen_height) / meters_to_pixels])
+        start_orientation = 2*np.pi*np.random.rand()
+    elif limit >= 10:
         center = (screen_width / (2 *meters_to_pixels), screen_height / (2 *meters_to_pixels))
         offx, offy = np.random.rand() * 20 - 10, np.random.rand() * 20 - 10
         start_pos = np.array([center[0] + offx, center[1] + offy])
+        start_orientation = 0 
     else:
         start_pos = target
-    start_orientation = 0 
+        start_orientation = 0 
 
     # initialize all drones
     for drone in drones:
@@ -112,22 +110,18 @@ def hover_scorer_headless(drones: list[Ai_Drone], screen_width, screen_height, m
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
-    # drone initialization
-    # if limit >= 20:
-    #     start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
-    #                          np.random.uniform(0, screen_height) / meters_to_pixels])
-    #     start_orientation = 2*np.pi*np.random.rand()
-    # else:
-    #     start_pos = target
-    #     start_orientation = 0
-
-    if limit >= 10:
+    if limit >= 40:
+        start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
+                             np.random.uniform(0, screen_height) / meters_to_pixels])
+        start_orientation = 2*np.pi*np.random.rand()
+    elif limit >= 10:
         center = (screen_width / (2 *meters_to_pixels), screen_height / (2 *meters_to_pixels))
         offx, offy = np.random.rand() * 20 - 10, np.random.rand() * 20 - 10
         start_pos = np.array([center[0] + offx, center[1] + offy])
+        start_orientation = 0 
     else:
         start_pos = target
-    start_orientation = 0 
+        start_orientation = 0 
 
     # initialize all drones
     for drone in drones:
