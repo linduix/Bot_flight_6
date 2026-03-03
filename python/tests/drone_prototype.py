@@ -1,5 +1,6 @@
 import pygame as pg
 import numpy as np
+import math
 from network_prototype import NeatNN
 from genome_prototype import Genome
 
@@ -116,6 +117,8 @@ class Drone:
         self.t2_thrust = 0.0
         # particles
         self.particles = []
+        # enabled
+        self.enabled = True
 
     def handle_input(self, keys, dt):
         if keys[pg.K_a]:
@@ -139,28 +142,23 @@ class Drone:
             self.t2_thrust = 0
 
     def calculate_forces(self):
-        # relative thruster forces
-        # f1 = rotate_vector(np.array([0, self.t1_thrust * self.thruster_force]), self.t1angle)
-        # f2 = rotate_vector(np.array([0, self.t2_thrust * self.thruster_force]), self.t2angle)
-        # self.F = rotate_vector(f1 + f2, self.angle)
-
         # f1 rotation
-        f1x = -(self.t1_thrust * self.thruster_force) * np.sin(self.t1angle)
-        f1y =  (self.t1_thrust * self.thruster_force) * np.cos(self.t1angle)
+        f1x = -(self.t1_thrust * self.thruster_force) * math.sin(self.t1angle)
+        f1y =  (self.t1_thrust * self.thruster_force) * math.cos(self.t1angle)
 
         # f2 rotation
-        f2x = -(self.t2_thrust * self.thruster_force) * np.sin(self.t2angle)
-        f2y =  (self.t2_thrust * self.thruster_force) * np.cos(self.t2angle)
+        f2x = -(self.t2_thrust * self.thruster_force) * math.sin(self.t2angle)
+        f2y =  (self.t2_thrust * self.thruster_force) * math.cos(self.t2angle)
 
         # combined force rotated by drone angle
-        cos_a = np.cos(self.angle)
-        sin_a = np.sin(self.angle)
-        self.F = np.array([(f1x+f2x)*cos_a - (f1y+f2y)*sin_a,
-                        (f1x+f2x)*sin_a + (f1y+f2y)*cos_a])
+        cos_a = math.cos(self.angle)
+        sin_a = math.sin(self.angle)
+        self.F[0] = (f1x+f2x)*cos_a - (f1y+f2y)*sin_a
+        self.F[1] = (f1x+f2x)*sin_a + (f1y+f2y)*cos_a
 
         # relative tourque forces
-        self.tau1 = -self.thruster_offset[0]*f1y + self.thruster_offset[1]*f1x
-        self.tau2 =  self.thruster_offset[0]*f2y - self.thruster_offset[1]*f2x
+        self.tau1 = -self.thruster_offset[0]*f1y
+        self.tau2 =  self.thruster_offset[0]*f2y
         self.T = self.tau1 + self.tau2
 
     def update(self, dt):
@@ -170,9 +168,15 @@ class Drone:
         self.av += self.aa * dt
         self.angle += self.av * dt
 
-        self.a = (self.F / self.M) + self.g
-        self.v += self.a * dt
-        self.pos += self.v * dt
+        # in-place (no new arrays)
+        self.a[0] = self.F[0] / self.M + self.g[0]
+        self.a[1] = self.F[1] / self.M + self.g[1]
+
+        self.v[0] += self.a[0] * dt
+        self.v[1] += self.a[1] * dt
+
+        self.pos[0] += self.v[0] * dt
+        self.pos[1] += self.v[1] * dt
 
     def draw_body(self, screen, a=255):
         pos_pix = m_to_pixel_position(self.pos, self.surface_height, self.mtp)
@@ -232,7 +236,6 @@ class Ai_Drone(Drone):
 
         self.brain = NeatNN(genome)
         self.waypoint: np.ndarray = np.array(pos, dtype=float)
-        self.enabled = True
 
     def reset_state(self, pos):
         return super().reset_state(pos)
