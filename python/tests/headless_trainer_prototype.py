@@ -132,7 +132,7 @@ if __name__ == '__main__':
                 f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
         
             # log to discord
-            if state['gen'] % 1 == 0:
+            if state['gen'] % 50 == 0:
                 log = (
                     f"{NAME}>> gen: {state['gen']} | avg score: {rolling_average*100:.2f}% | "
                     f"max score: {max_score*100/target_score:.1f}% | improvement: {improvement*100:.1f}% | "
