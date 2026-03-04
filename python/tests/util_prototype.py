@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import multiprocessing as mp
 import pickle
+import requests
+import threading
+import queue
+import time
 
 save_path = Path(__file__).parent.parent.parent / "data" / "checkpoints" / "prototype_save.pkl"
 def save(state: dict):
@@ -103,3 +107,41 @@ def viz_process(q: mp.Queue):
                 node_size=500, arrows=True)
         plt.title(f'Genome — {len(genome.nodes)} nodes, {len(genome.connections)} connections')
         plt.pause(0.001)
+
+class DiscordLogger:
+    def __init__(self, webhook_url, interval=60):
+        self.webhook = webhook_url
+        self.interval = interval
+        self.q = queue.Queue()
+        self.stop_event = threading.Event()
+
+        self.thread = threading.Thread(target=self._worker, daemon=True)
+        self.thread.start()
+
+    def log(self, msg):
+        if not self.stop_event.is_set():
+            self.q.put(msg)
+
+    def close(self):
+        self.stop_event.set()
+        self.q.put(None)          # sentinel to unblock queue
+        self.thread.join()
+
+    def _worker(self):
+        last_send = 0
+
+        while not self.stop_event.is_set():
+            msg = self.q.get()
+
+            if msg is None:      # shutdown signal
+                break
+
+            now = time.time()
+            if now - last_send < self.interval:
+                time.sleep(self.interval - (now - last_send))
+
+            try:
+                requests.post(self.webhook, json={"content": msg}, timeout=5)
+                last_send = time.time()
+            except Exception as e:
+                print('thread error:', repr(e))

@@ -3,12 +3,15 @@ from scoring_prototype import hover_scorer_headless
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
 from breeding_prototype import breed
+from dotenv import load_dotenv
 import util_prototype as utils
 import numpy as np
 import cProfile
 import time
 import pstats
 import io
+import os
+import requests
 
 config = {
     "population": 2000,
@@ -41,6 +44,16 @@ if __name__ == '__main__':
     # drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
     # print('starting')
     # cProfile.run('hover_scorer_headless(drones, config["width"], config["height"], config["meters_to_pixels"], limit=5)')
+
+    # setup discord logger
+    load_dotenv()
+    WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+    NAME = os.environ['NAME']
+    discord_logger = utils.DiscordLogger(WEBHOOK, interval=5)
+
+    # webhook test
+    r = requests.post(WEBHOOK, json={"content": f"{NAME}>> TRAINING INIT"}, timeout=5)
+    print("discord test:", r.status_code, r.text[:200])
 
     print('training starting...')
     try:
@@ -93,6 +106,7 @@ if __name__ == '__main__':
             ix = np.argsort(scores)[-1]
             state['best_drone'] = state['current_gen'][ix]
 
+            # breed profiling
             if profile:
                 print('profiling')
                 pr = cProfile.Profile()
@@ -105,17 +119,27 @@ if __name__ == '__main__':
                 state['current_gen'] = next_gen
                 state['gen'] += 1
 
+            # breed profiling
             if profile:
                 pr.disable() # type: ignore
                 pr.dump_stats("breed0.prof")  # type: ignore
                 print("wrote breed0.prof")
                 profile = False
 
-            # log training stats
+            # log training stats to terminal
             print(f'gen: {state["gen"]} | avg score: {rolling_average*100: .2f}% | max score: {max_score*100/target_score: .1f}% |',
                 f'target score: {target_score : .0f} | improvement: {improvement*100: .1f}% | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
                 f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
-
+        
+            # log to discord
+            if state['gen'] % 1 == 0:
+                log = (
+                    f"{NAME}>> gen: {state['gen']} | avg score: {rolling_average*100:.2f}% | "
+                    f"max score: {max_score*100/target_score:.1f}% | improvement: {improvement*100:.1f}% | "
+                    f"limit: {limit}"
+                )
+                discord_logger.log(log)
+            
             if max_score > target_score:
                 success += 1
                 if success == 4:
@@ -139,9 +163,16 @@ if __name__ == '__main__':
             # save progress every 500 gens
             if state['gen'] % 500 == 0:
                 utils.save(state)
-
-
+        
+        print('---------------------------')
+        print('closing logger...')
+        discord_logger.log(f'{NAME}>> TRAINING TERM')
+        discord_logger.close()
         utils.save(state)
 
     except KeyboardInterrupt:
+        print('---------------------------')
+        print('closing logger...')
+        discord_logger.log(f'{NAME}>> TRAINING TERM')
+        discord_logger.close()
         utils.save(state)
