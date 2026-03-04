@@ -201,7 +201,7 @@ class Drone:
         t2_rotated = pg.transform.rotate(self.thruster, np.rad2deg(self.t2angle) + np.rad2deg(self.angle))
         t2_rotated.set_alpha(a)
         screen.blit(t2_rotated, t2_rotated.get_rect(center=t2pos_pix))
-    
+
     def draw_particles(self, screen, dt, a=255):
         # thrusetr position calculations
         t1pos = self.pos - rotate_vector(self.thruster_offset, self.angle)
@@ -260,7 +260,7 @@ class Ai_Drone(Drone):
         self.t1angle += t1turn * self.thruster_rotation_speed * dt
         self.t2angle += t2turn * self.thruster_rotation_speed * dt
 
-        # limit angle        
+        # limit angle
         self.t1angle = min( max(self.t1angle, self.thruster_max_angle[0]), self.thruster_max_angle[1] )
         self.t2angle = min( max(self.t2angle, self.thruster_max_angle[0]), self.thruster_max_angle[1] )
 

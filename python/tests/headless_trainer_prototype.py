@@ -32,10 +32,8 @@ if __name__ == '__main__':
             'best_drone': None,
             'historical_score': []
         }
-        # add one randome connection
-        for g in state['current_gen']:
-            add_connection(g, state['innovations'])
-        # populate current gen
+
+        # populate current gen and add base connections
         state['current_gen'] = [Genome.new()for _ in range(config['population'])]
         for g in state['current_gen']:
             g.base_connections(state['innovations'])
@@ -49,6 +47,7 @@ if __name__ == '__main__':
         limit = 5
         done = False
         profile = False
+        success = 0
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -116,13 +115,18 @@ if __name__ == '__main__':
             print(f'gen: {state["gen"]} | avg score: {rolling_average*100: .2f}% | max score: {max_score*100/target_score: .1f}% |',
                 f'target score: {target_score : .0f} | improvement: {improvement*100: .1f}% | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
                 f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
-            
+
             if max_score > target_score:
-                # finish if getting 90% of final target score
-                if limit >= 60 and max_score/target_score > .95:
-                    done = True
-                limit += 5
-                utils.save(state)
+                success += 1
+                if success == 4:
+                    # finish if getting 90% of final target score
+                    if limit >= 60 and max_score/target_score > .95:
+                        done = True
+                    limit += 5
+                    utils.save(state)
+                    success = 0
+            else:
+                success = 0
 
             # adjust species thresholds
             if len(species) < 10:

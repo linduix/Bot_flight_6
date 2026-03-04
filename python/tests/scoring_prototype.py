@@ -10,22 +10,26 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
     # fps font
     font = pg.font.SysFont(None, 24)
 
+    center = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
+    R = math.hypot(screen_width, screen_height) / (2 * meters_to_pixels) # diagonal length
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
-    # drone initialization
     if limit >= 40:
-        start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
-                             np.random.uniform(0, screen_height) / meters_to_pixels])
-        start_orientation = 2*np.pi*np.random.rand()
+        # 100% of center->corner distance, random direction (circle)
+        theta = 2 * math.pi * np.random.rand()
+        start_pos = center + R * 1.5 * np.array([math.cos(theta), math.sin(theta)])
+        start_orientation = 2 * math.pi * np.random.rand()
+
     elif limit >= 10:
-        center = (screen_width / (2 *meters_to_pixels), screen_height / (2 *meters_to_pixels))
-        offx, offy = np.random.rand() * 20 - 10, np.random.rand() * 20 - 10
-        start_pos = np.array([center[0] + offx, center[1] + offy])
-        start_orientation = 0 
+        # 50% of center->corner distance, random direction (circle)
+        theta = 2 * math.pi * np.random.rand()
+        start_pos = center + (.5 * R) * np.array([math.cos(theta), math.sin(theta)])
+        start_orientation = 0
+
     else:
-        start_pos = target
-        start_orientation = 0 
+        start_pos = center.copy()  # same as target
+        start_orientation = 0
 
     # initialize all drones
     for drone in drones:
@@ -38,7 +42,7 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
     time = 0.0
     dt = 0.016
     frame_count = 0
-    distance_limit = np.sqrt(screen_height**2 + screen_width**2) / meters_to_pixels
+    distance_limit = R * 2
     deg45_rads = np.deg2rad(45)
 
     return_code = 0
@@ -107,21 +111,26 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
     return return_code, scores, frame_count
 
 def hover_scorer_headless(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels, limit=10):
+    center = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
+    R = math.hypot(screen_width, screen_height) / (2 * meters_to_pixels) # diagonal length
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
     if limit >= 40:
-        start_pos = np.array([np.random.uniform(0, screen_width) / meters_to_pixels,
-                             np.random.uniform(0, screen_height) / meters_to_pixels])
-        start_orientation = 2*np.pi*np.random.rand()
+        # 100% of center->corner distance, random direction (circle)
+        theta = 2 * math.pi * np.random.rand()
+        start_pos = center + R * 1.5 * np.array([math.cos(theta), math.sin(theta)])
+        start_orientation = 2 * math.pi * np.random.rand()
+
     elif limit >= 10:
-        center = (screen_width / (2 *meters_to_pixels), screen_height / (2 *meters_to_pixels))
-        offx, offy = np.random.rand() * 20 - 10, np.random.rand() * 20 - 10
-        start_pos = np.array([center[0] + offx, center[1] + offy])
-        start_orientation = 0 
+        # 50% of center->corner distance, random direction (circle)
+        theta = 2 * math.pi * np.random.rand()
+        start_pos = center + (0.5 * R) * np.array([math.cos(theta), math.sin(theta)])
+        start_orientation = 0
+
     else:
-        start_pos = target
-        start_orientation = 0 
+        start_pos = center.copy()  # same as target
+        start_orientation = 0
 
     # initialize all drones
     for drone in drones:
@@ -133,7 +142,7 @@ def hover_scorer_headless(drones: list[Ai_Drone], screen_width, screen_height, m
     time = 0.0
     dt = 0.016
     frame_count = 0
-    distance_limit = np.sqrt(screen_height**2 + screen_width**2) / meters_to_pixels
+    distance_limit = R * 2
     deg45_rads = np.deg2rad(45)
 
     return_code = 0

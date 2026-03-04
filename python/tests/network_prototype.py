@@ -12,7 +12,7 @@ import math
 #         for c in genome.connections:
 #             if c.enabled:
 #                 self.incoming_connections[c.output].append(c)
-        
+
 #         # precalculate recurrent connections (loops)
 #         self.recurrent = set()
 #         index = {n: ix for ix, n in enumerate(self.node_order)}
@@ -52,7 +52,7 @@ import math
 #                 # add remaining nodes (cycle)
 #                 sorted_nodes += [n for n in nodes if n not in sorted_nodes]
 #                 break
-            
+
 #             # move node from queue to sorted
 #             node = queue.pop(0)
 #             sorted_nodes.append(node)
@@ -67,7 +67,7 @@ import math
 #                 # if new 0 degree nodes discovered, add to queue
 #                 if in_degree[output] == 0:
 #                     queue.append(output)
-            
+
 
 #         sorted_nodes += outputs
 #         return sorted_nodes
@@ -103,15 +103,15 @@ import math
 #                 # else use current
 #                 else:
 #                     value += self.current_value[c.input] * c.weight
-            
+
 #             # go through activation function
 #             activation = math.tanh(value)
 
 #             # write to current value
 #             self.current_value[node] = activation
-        
+
 #         return self.current_value[9], self.current_value[10], self.current_value[11], self.current_value[12]
-    
+
 
 class NeatNN:
     def __init__(self, genome: Genome):
@@ -163,7 +163,7 @@ class NeatNN:
                 # add remaining nodes (cycle)
                 sorted_nodes += [n for n in nodes if n not in sorted_nodes]
                 break
-            
+
             # move node from queue to sorted
             node = queue.pop(0)
             sorted_nodes.append(node)
@@ -178,7 +178,7 @@ class NeatNN:
                 # if new 0 degree nodes discovered, add to queue
                 if in_degree[output] == 0:
                     queue.append(output)
-            
+
 
         sorted_nodes += outputs
         return sorted_nodes
@@ -186,7 +186,7 @@ class NeatNN:
     def forward(self, delta_x, delta_y, angle, vel_x, vel_y, angular_vel, t1_angle, t2_angle):
         # buffer swap current to previous
         self.previous_value, self.current_value = self.current_value, self.previous_value
-        
+
         # bind to local var to reduce lookup in
         prev, cur = self.previous_value, self.current_value
         incoming = self.incoming_connections
@@ -217,11 +217,11 @@ class NeatNN:
                 # weight * node value per connection
                 # if the connection is recurrent use prev val
                 value += weight * (prev[inputix] if recur else cur[inputix])
-            
+
             # go through activation function
             activation = tanh(value)
 
             # write to current value
             cur[ix] = activation
-        
+
         return cur[nodeix[9]], cur[nodeix[10]], cur[nodeix[11]], cur[nodeix[12]]
