@@ -1,11 +1,12 @@
-from genome_prototype import NodeType
 from pathlib import Path
+from genome_prototype import NodeType
 import matplotlib.pyplot as plt
-import networkx as nx
 import multiprocessing as mp
-import pickle
-import requests
+import networkx as nx
+import dataclasses
 import threading
+import requests
+import pickle
 import queue
 import time
 

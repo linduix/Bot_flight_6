@@ -1,5 +1,5 @@
 from drone_prototype import Ai_Drone
-from scoring_prototype import hover_scorer
+from scoring_prototype import stage1_viz
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome
 from breeding_prototype import breed
@@ -10,7 +10,7 @@ import numpy as np
 import cProfile
 
 config = {
-    "population": 100,
+    "population": 200,
     "width": 800,
     "height": 600,
     "meters_to_pixels": 15
@@ -54,13 +54,13 @@ if __name__ == '__main__':
     # print('starting')
     # cProfile.run('hover_scorer(drones, config["width"], config["height"], config["meters_to_pixels"], screen, clock, visualize=False)')
 
-    limit = 5
+    limit = 10
     done = False
     while not done:
         drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
 
         # run scorer
-        return_code, scores, iterations = hover_scorer(
+        return_code, scores, completions = stage1_viz(
             drones,
             config["width"],
             config["height"],
@@ -74,12 +74,11 @@ if __name__ == '__main__':
             break
 
         # calculate performance
-        target_score = iterations * .85
         max_score = max(scores)
 
         # log score history
         state.setdefault('historical_score', [])
-        state['historical_score'].append(max_score / target_score)
+        state['historical_score'].append(max_score)
         # get past 10 rolling average
         rolling_average = np.average(state['historical_score'][-10:])
         # calculate improvement from roling average change
@@ -109,21 +108,17 @@ if __name__ == '__main__':
             state['gen'] += 1
 
         # log training stats
-        print(f'gen: {state["gen"]} | score: {rolling_average*100: .2f}% | max score: {max_score*100/target_score: .1f}% | target score: {target_score : .0f} |',
-            f'improvement: {improvement*100: .1f}% | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
+        print(f'gen: {state["gen"]} | score: {rolling_average: .2f} | max score: {max_score: .1f} | completions: {completions} |',
+            f'improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
             f'bloat: {average_connections/rolling_average: .2f}')
         
-        if max_score > target_score:
-            # finish if getting 90% of final target score
-            if limit >= 60 and max_score/target_score > .95:
-                done = True
-            limit += 5
-
         # adjust species thresholds
         if len(species) < 10:
-            state["threshold"] *= .95
+            diff = abs(len(species) - (10+15)/2)
+            state["threshold"] *= max(1 - (diff * 0.016), 0.1)
         elif len(species) > 15:
-            state["threshold"] *= 1.05
+            diff = abs(len(species) - (10+15)/2)
+            state["threshold"] *= 1 + (diff * 0.016)
 
     utils.save(state)
     viz_queue.put(None)
