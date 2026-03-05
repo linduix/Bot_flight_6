@@ -160,14 +160,14 @@ if __name__ == '__main__':
             if state['gen'] % 50 == 0 and logging:
                 if stage == 0:
                     log = (
-                        f"{NAME}>> gen: {state['gen']} | avg score: {rolling_average:.2f} | "
+                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
                         f"max score: {max_score:.1f} | improvement: {improvement:.1f} | "
                         f"limit: {limit}\n"
                         f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
                     )
                 else:
                     log = (
-                        f"{NAME}>> gen: {state['gen']} | avg score: {rolling_average:.2f} | "
+                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
                         f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
                         f"completions: {completions}\n"
                         f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
