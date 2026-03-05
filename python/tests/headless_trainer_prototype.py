@@ -33,7 +33,8 @@ if __name__ == '__main__':
             'innovations': Innovations(),
             'threshold': 0.5,
             'best_drone': None,
-            'historical_score': []
+            'historical_score': [],
+            'stage': 0
         }
 
         # populate current gen and add base connections
@@ -62,7 +63,7 @@ if __name__ == '__main__':
         limit = 5
         done = False
         profile = False
-        stage = 0
+        stage = state['stage']
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -178,6 +179,7 @@ if __name__ == '__main__':
                 # finish if getting 90% of final target score
                 if limit >= 60 and max_score/target_score > .95:
                     stage = 1
+                    state['stage'] = 1
                     limit = 10
                     state['historical_score'] = []
                     utils.save(state)
