@@ -53,8 +53,9 @@ if __name__ == '__main__':
     discord_logger = utils.DiscordLogger(WEBHOOK, interval=5)
 
     # webhook test
-    r = requests.post(WEBHOOK, json={"content": f"{NAME}>> TRAINING INIT"}, timeout=5)
-    print("discord test:", r.status_code, r.text[:200])
+    if logging:
+        r = requests.post(WEBHOOK, json={"content": f"{NAME}>> TRAINING INIT"}, timeout=5)
+        print("discord test:", r.status_code, r.text[:200])
 
     print('training starting...')
     try:
@@ -197,13 +198,15 @@ if __name__ == '__main__':
         
         print('---------------------------')
         print('closing logger...')
-        discord_logger.log(f'{NAME}>> TRAINING TERM')
+        if logging:
+            discord_logger.log(f'{NAME}>> TRAINING TERM')
         discord_logger.close()
         utils.save(state)
 
     except KeyboardInterrupt:
         print('---------------------------')
         print('closing logger...')
-        discord_logger.log(f'{NAME}>> TRAINING TERM')
+        if logging:
+            discord_logger.log(f'{NAME}>> TRAINING TERM')
         discord_logger.close()
         utils.save(state)
