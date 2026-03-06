@@ -177,7 +177,7 @@ if __name__ == '__main__':
             # progress hover stage
             if stage == 0:
                 # finish if getting 90% of final target score
-                if limit >= 60 and max_score/target_score > .95:
+                if limit >= 30 and max_score/target_score > .95:
                     stage = 1
                     state['stage'] = 1
                     limit = 10
@@ -199,16 +199,16 @@ if __name__ == '__main__':
                 utils.save(state)
         
         print('---------------------------')
-        print('closing logger...')
         if logging:
+            print('closing logger...')
             discord_logger.log(f'{NAME}>> TRAINING TERM')
         discord_logger.close()
         utils.save(state)
 
     except KeyboardInterrupt:
         print('---------------------------')
-        print('closing logger...')
         if logging:
+            print('closing logger...')
             discord_logger.log(f'{NAME}>> TRAINING TERM')
         discord_logger.close()
         utils.save(state)

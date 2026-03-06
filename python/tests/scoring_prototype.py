@@ -182,6 +182,10 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
     max_a = drones[0].thruster_force * 2 / drones[0].M
     stop_d = lambda v: (v**2) / (2*max_a + eps)
 
+    # Scoring elements
+    d_initial = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
+    base_bonus = max(400, d_initial * 4)
+
     # Drone init
     for drone in drones:
         drone.reset_state(spawn)
@@ -190,7 +194,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
     hovertime = np.zeros(len(drones))
     scores = np.zeros(len(drones))
     time = 0
-    dt = 0.16
+    dt = 0.016
     completions = 0
     while time < limit:
         if not any([d.enabled for d in drones]):
@@ -221,49 +225,56 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
             e_perp_v = r0 - np.dot(r0, a0) * a0                    # component of position perp to ideal path
             e_perp_s: float = math.hypot(e_perp_v[0], e_perp_v[1]) # magnitude of perp error
 
-            # Objective reward
-            score = 0
-            if d < 0.1 and v_mag < 0.1:
+            score = 0.0
+            # 1. Approach reward — total integrates to d_initial, completion always 4x this
+            if v_par_s > 0:
+                if d > stop_d(v_par_s):
+                    score += dt * v_par_s                      # +v m/s per second, sums to distance traveled
+                else:
+                    score -= dt * v_par_s * 2.5                # underbraking penalty, 2.5x the approach reward
+
+            # 2. Penalise retreating at all distances
+            if v_par_s < 0:
+                score -= dt * abs(v_par_s) * 1.0              # symmetric with approach reward
+
+            # 3. Lateral penalty — cheap far away, brutal near target
+            prox = 1.0 + 1.5 / max(d, 0.3)                   # d=0.3 → 6x, d=3 → 1.5x, d=inf → 1x
+            score -= dt * v_perp_s * prox
+
+            # 4. Straight-line path bias
+            score += dt / (1.0 + e_perp_s)
+
+            # 5. Progress reward — sums to ~log(1+d_initial), minor but consistent
+            score += dt / (1.0 + d)
+
+            # 6. Precision zone — penalise any motion, reward level attitude
+            if d < 1.0:
+                score -= dt * v_mag * 3.0                      # damps all oscillation
+                score -= dt * d * 4.0                          # pulls toward exact center
+                score -= dt * abs(drone.angle) * 0.5           # level hover
+
+            # 7. Hover zone + completion
+            in_zone = d < 0.5 and v_mag < 0.4
+            if in_zone:
                 hovertime[ix] += dt
-                score += dt
-                if hovertime[ix] > 0.1 * limit: 
-                    score += max(100, 10 * limit)
-                    # speed component
-                    speed = max(50, 5 * limit) / (eps + time)
-                    score += speed
+                score += dt * 3.0
+                score -= dt * drone.angle ** 2 * 1.5          # upright hover strongly rewarded
+                if hovertime[ix] > 0.1 * limit:
+                    score += base_bonus                        # always 4x max approach reward
+                    score += base_bonus * (1 - time / limit)  # speed bonus, up to 2x base_bonus
                     drone.enabled = False
                     completions += 1
             else:
                 if hovertime[ix] > 0:
                     hovertime[ix] -= dt
 
-            # positive velocity alignemnt reward
-            if v_par_s > 0:
-                if d > stop_d(v_par_s):
-                    score += dt * v_par_s
-                else:
-                    score -= dt * v_par_s
-
-            # sideways vel penalty
-            score -= dt * v_perp_s * 0.05
-            # Ideal path reward
-            score += dt / (1 + e_perp_s)
-            # passive distance reward
-            score += dt / (10 + d)
-
-            # append score
-            scores[ix] += score
-
-            # disable if too far / crash
+            # 8. Out of bounds
             if d > R * 2:
                 drone.enabled = False
                 scores[ix] /= 2
 
-            # fix negatives
             scores[ix] += score
-            if scores[ix] < 0:
-                scores[ix] = 0
-            scores[ix] += dt / (1+d)
+            scores[ix] = max(scores[ix], 0)
 
         time += dt
     return 0, scores, completions
@@ -312,8 +323,11 @@ def stage1_viz(
         return (v_close * v_close) / (2 * max_a + eps)
 
     # success dwell requirement
-    required_hover = 1.0  # seconds
     hovertime = np.zeros(len(drones), dtype=float)
+
+    # Scoring elements
+    d_initial = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
+    base_bonus = max(400, d_initial * 4)
 
     # initialize all drones
     for drone in drones:
@@ -324,7 +338,6 @@ def stage1_viz(
     scores = np.zeros(len(drones))
     top_drones: list[int] = list(np.argsort(scores)[-10:])
     time = 0.0
-    distance_limit = R * 2
     completions = 0
 
     return_code = 0
@@ -367,47 +380,57 @@ def stage1_viz(
             e_perp_v = r0 - float(np.dot(r0, a0)) * a0
             e_perp = math.hypot(e_perp_v[0], e_perp_v[1])
 
-            # ----- Scoring -----
+ 
             score = 0.0
+            # 1. Approach reward — total integrates to d_initial, completion always 4x this
+            if v_par > 0:
+                if d > stop_d(v_par):
+                    score += dt * v_par                      # +v m/s per second, sums to distance traveled
+                else:
+                    score -= dt * v_par * 2.5                # underbraking penalty, 2.5x the approach reward
 
-            # dwell success: be close + nearly stopped for >= required_hover
-            in_zone = (d < 0.1) and (v_mag < 0.1)
+            # 2. Penalise retreating at all distances
+            if v_par < 0:
+                score -= dt * abs(v_par) * 1.0              # symmetric with approach reward
+
+            # 3. Lateral penalty — cheap far away, brutal near target
+            prox = 1.0 + 1.5 / max(d, 0.3)                   # d=0.3 → 6x, d=3 → 1.5x, d=inf → 1x
+            score -= dt * v_perp * prox
+
+            # 4. Straight-line path bias
+            score += dt / (1.0 + e_perp)
+
+            # 5. Progress reward — sums to ~log(1+d_initial), minor but consistent
+            score += dt / (1.0 + d)
+
+            # 6. Precision zone — penalise any motion, reward level attitude
+            if d < 1.0:
+                score -= dt * v_mag * 3.0                      # damps all oscillation
+                score -= dt * d * 4.0                          # pulls toward exact center
+                score -= dt * abs(drone.angle) * 0.5           # level hover
+
+            # 7. Hover zone + completion
+            in_zone = d < 0.5 and v_mag < 0.4
             if in_zone:
                 hovertime[i] += dt
-                score += 2 * dt  # small sustain reward (optional)
-
-                if hovertime[i] >= required_hover:
-                    score += max(100.0, 10.0 * limit)
-                    score += max(50.0, 5.0 * limit) / (eps + time)  # faster is better
+                score += dt * 3.0
+                score -= dt * drone.angle ** 2 * 1.5          # upright hover strongly rewarded
+                if hovertime[i] > 0.1 * limit:
+                    score += base_bonus                        # always 4x max approach reward
+                    score += base_bonus * (1 - time / limit)  # speed bonus, up to 2x base_bonus
                     drone.enabled = False
                     completions += 1
             else:
                 if hovertime[i] > 0:
                     hovertime[i] -= dt
 
-            # accelerate vs brake shaping (closing speed only)
-            v_close = max(v_par, 0.0)
-            if v_close > 0.0:
-                if d > stop_d(v_close):
-                    score += dt * v_close
-                else:
-                    score -= dt * v_close
-
-            # sideways velocity penalty + straight-line bias + distance shaping
-            score -= dt * v_perp * 0.05
-            score += dt / (1.0 + e_perp)
-            score += dt / (10.0 + d)
-
-            # disable if too far
-            if d > distance_limit:
+            # 8. Out of bounds
+            if d > R * 2:
                 drone.enabled = False
                 scores[i] /= 2
 
-            # clip scores
             scores[i] += score
-            if scores[i] < 0:
-                scores[i] = 0
-            scores[i] += dt / (1+d)
+            scores[i] = max(scores[i], 0)
 
         # draw target + spawn + ideal path line
         pg.draw.circle(
