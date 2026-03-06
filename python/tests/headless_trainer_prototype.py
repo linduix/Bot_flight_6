@@ -60,10 +60,13 @@ if __name__ == '__main__':
 
     print('training starting...')
     try:
-        limit = 5
+        stage = state['stage']
+        if stage == 0:
+            limit = 5
+        else:
+            limit = 15
         done = False
         profile = False
-        stage = state['stage']
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -149,11 +152,12 @@ if __name__ == '__main__':
             # log training stats to terminal
             if stage == 0:
                 print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .1f} |',
-                    f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
+                    f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
                     f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
             else:
-                print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .2f} | completions: {completions} |',
-                    f'improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
+                assert isinstance(completions, list)
+                print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
+                    f'c time: {np.average(completions): .2f}s | improved: {improvement: .1f} | species: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
                     f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
         
             # log to discord

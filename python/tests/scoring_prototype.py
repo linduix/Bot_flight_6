@@ -195,7 +195,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
     scores = np.zeros(len(drones))
     time = 0
     dt = 0.016
-    completions = 0
+    completions = []
     while time < limit:
         if not any([d.enabled for d in drones]):
             break
@@ -263,7 +263,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
                     score += base_bonus                        # always 4x max approach reward
                     score += base_bonus * (1 - time / limit)  # speed bonus, up to 2x base_bonus
                     drone.enabled = False
-                    completions += 1
+                    completions.append(time)
             else:
                 if hovertime[ix] > 0:
                     hovertime[ix] -= dt
@@ -338,7 +338,7 @@ def stage1_viz(
     scores = np.zeros(len(drones))
     top_drones: list[int] = list(np.argsort(scores)[-10:])
     time = 0.0
-    completions = 0
+    completions = []
 
     return_code = 0
     while time < limit:
@@ -419,7 +419,7 @@ def stage1_viz(
                     score += base_bonus                        # always 4x max approach reward
                     score += base_bonus * (1 - time / limit)  # speed bonus, up to 2x base_bonus
                     drone.enabled = False
-                    completions += 1
+                    completions.append(time)
             else:
                 if hovertime[i] > 0:
                     hovertime[i] -= dt
