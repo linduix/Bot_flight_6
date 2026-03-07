@@ -171,10 +171,11 @@ if __name__ == '__main__':
                         f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
                     )
                 else:
+                    assert isinstance(completions, list)
                     log = (
                         f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
                         f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
-                        f"completions: {completions}\n"
+                        f"completions: {len(completions)} | c time: {np.average(completions)}\n"
                         f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
                     )
                 discord_logger.log(log)

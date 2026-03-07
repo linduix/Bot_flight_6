@@ -191,8 +191,11 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
         drone.reset_state(spawn)
         drone.waypoint = target
 
+    # per drone tracking
     hovertime = np.zeros(len(drones))
     scores = np.zeros(len(drones))
+    prev_d = np.zeros(len(drones))
+
     time = 0
     dt = 0.016
     completions = []
@@ -231,21 +234,29 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
                 if d > stop_d(v_par_s):
                     score += dt * v_par_s                      # +v m/s per second, sums to distance traveled
                 else:
-                    score -= dt * v_par_s * 2.5                # underbraking penalty, 2.5x the approach reward
+                    score -= dt * v_par_s * 1.5                # underbraking penalty, 1.5x the approach reward
+
+            # Maintaining max speed reward
+            if d > 1:
+                safe_v = np.sqrt( 2 * (2 * drone.thruster_force / drone.M) * d)
+                if v_par_s < safe_v:
+                    reward = 5 * dt * (v_par_s / safe_v)
+                    score += reward
 
             # 2. Penalise retreating at all distances
             if v_par_s < 0:
-                score -= dt * abs(v_par_s) * 1.0              # symmetric with approach reward
+                score -= dt * v_par_s * 1.0              # symmetric with approach reward
 
             # 3. Lateral penalty — cheap far away, brutal near target
             prox = 1.0 + 1.5 / max(d, 0.3)                   # d=0.3 → 6x, d=3 → 1.5x, d=inf → 1x
             score -= dt * v_perp_s * prox
 
-            # 4. Straight-line path bias
-            score += dt / (1.0 + e_perp_s)
-
-            # 5. Progress reward — sums to ~log(1+d_initial), minor but consistent
-            score += dt / (1.0 + d)
+            # 4. Ideal path penalty
+            score -= dt * 0.1 * e_perp_s
+            # 5. Distance potential
+            score += 0.5 * (prev_d - d)
+            # Dilly Dally penalty
+            score -= 1 * dt
 
             # 6. Precision zone — penalise any motion, reward level attitude
             if d < 1.0:
@@ -254,7 +265,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
                 score -= dt * abs(drone.angle) * 0.5           # level hover
 
             # 7. Hover zone + completion
-            in_zone = d < 0.5 and v_mag < 0.4
+            in_zone = d < 0.5 and v_mag < 0.5
             if in_zone:
                 hovertime[ix] += dt
                 score += dt * 3.0
@@ -275,6 +286,9 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
 
             scores[ix] += score
             scores[ix] = max(scores[ix], 0)
+
+            # Update prev vals
+            prev_d[ix] = d
 
         time += dt
     return 0, scores, completions
@@ -387,7 +401,7 @@ def stage1_viz(
                 if d > stop_d(v_par):
                     score += dt * v_par                      # +v m/s per second, sums to distance traveled
                 else:
-                    score -= dt * v_par * 2.5                # underbraking penalty, 2.5x the approach reward
+                    score -= dt * v_par * 0.75                # underbraking penalty, 2.5x the approach reward
 
             # 2. Penalise retreating at all distances
             if v_par < 0:

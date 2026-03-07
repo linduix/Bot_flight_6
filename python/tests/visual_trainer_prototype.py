@@ -54,7 +54,7 @@ if __name__ == '__main__':
     # print('starting')
     # cProfile.run('hover_scorer(drones, config["width"], config["height"], config["meters_to_pixels"], screen, clock, visualize=False)')
 
-    limit = 10
+    limit = 15
     done = False
     while not done:
         drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -108,7 +108,7 @@ if __name__ == '__main__':
             state['gen'] += 1
 
         # log training stats
-        print(f'gen: {state["gen"]} | score: {rolling_average: .2f} | max score: {max_score: .1f} | completions: {completions} |',
+        print(f'gen: {state["gen"]} | score: {rolling_average: .2f} | max score: {max_score: .1f} | completions: {len(completions)} |',
             f'improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit} |',
             f'bloat: {average_connections/rolling_average: .2f}')
         

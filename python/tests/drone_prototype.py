@@ -88,7 +88,7 @@ class Drone:
         self.thruster_offset = np.array([self.size[0] / 2, 0.0])
         self.thruster_rotation_speed = np.deg2rad(120)
         self.thruster_max_angle = (np.deg2rad(-60), np.deg2rad(60))
-        self.thruster_force = 9.81 * self.M * 1.4
+        self.thruster_force = 9.81 * self.M * 1.2
 
         # particle amount
         self.particle_count = 3
