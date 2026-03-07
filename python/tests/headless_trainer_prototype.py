@@ -159,9 +159,10 @@ if __name__ == '__main__':
                 print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
                     f'c time: {np.average(completions): .2f}s | improved: {improvement: .1f} | species: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
                     f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
-        
+
             # log to discord
             if state['gen'] % 50 == 0 and logging:
+                print('logging...')
                 if stage == 0:
                     log = (
                         f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
@@ -177,7 +178,7 @@ if __name__ == '__main__':
                         f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
                     )
                 discord_logger.log(log)
-            
+
             # progress hover stage
             if stage == 0:
                 # finish if getting 90% of final target score
@@ -201,7 +202,7 @@ if __name__ == '__main__':
             # save progress every 500 gens
             if state['gen'] % 500 == 0:
                 utils.save(state)
-        
+
         print('---------------------------')
         if logging:
             print('closing logger...')

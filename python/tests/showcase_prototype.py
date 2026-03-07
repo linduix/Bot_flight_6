@@ -83,6 +83,7 @@ if __name__ == '__main__':
 
     drone: Ai_Drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], state['best_drone'])
     viz_queue.put(drone.brain.genome)
+    print(state['gen'])
 
     done = False
     while not done:
