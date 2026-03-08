@@ -194,7 +194,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
     # per drone tracking
     hovertime = np.zeros(len(drones))
     scores = np.zeros(len(drones))
-    prev_d = np.zeros(len(drones))
+    prev_d = np.full(len(drones), d_initial)
 
     time = 0
     dt = 0.016
@@ -245,7 +245,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
 
             # 2. Penalise retreating at all distances
             if v_par_s < 0:
-                score -= dt * v_par_s * 1.0              # symmetric with approach reward
+                score -= dt * abs(v_par_s) * 1.0              # symmetric with approach reward
 
             # 3. Lateral penalty — cheap far away, brutal near target
             prox = 1.0 + 1.5 / max(d, 0.3)                   # d=0.3 → 6x, d=3 → 1.5x, d=inf → 1x
@@ -254,7 +254,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
             # 4. Ideal path penalty
             score -= dt * 0.1 * e_perp_s
             # 5. Distance potential
-            score += 0.5 * (prev_d - d)
+            score += 0.5 * (prev_d[ix] - d)
             # Dilly Dally penalty
             score -= 1 * dt
 
