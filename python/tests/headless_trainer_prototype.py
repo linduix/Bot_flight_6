@@ -82,7 +82,7 @@ if __name__ == '__main__':
             return_code = 1
             if stage == 0:
                 # run scorer
-                completions = None
+                completions = []
                 return_code, scores, iterations = hover_scorer_headless(
                     drones,
                     config["width"],
@@ -187,18 +187,6 @@ if __name__ == '__main__':
                     )
                 discord_logger.log(log)
 
-            # progress hover stage
-            if stage == 0:
-                # finish if getting 90% of final target score
-                if limit >= 30 and max_score/target_score > .95:
-                    stage = 1
-                    state['stage'] = 1
-                    limit = 10
-                    state['historical_score'] = []
-                    utils.save(state)
-                if max_score / target_score > .9:
-                    limit += 5
-
             # adjust species thresholds
             if len(species) < 10:
                 diff = abs(len(species) - (10+15)/2)
@@ -216,6 +204,18 @@ if __name__ == '__main__':
                     difficulty *= np.sqrt(error + 1)
                     difficulty = max(difficulty, 10)
                     state['difficulty'] = difficulty
+
+            # progress hover stage
+            if stage == 0:
+                # finish if getting 90% of final target score
+                if limit >= 30 and max_score/target_score > .95:
+                    stage = 1
+                    state['stage'] = 1
+                    limit = 10
+                    state['historical_score'] = []
+                    utils.save(state)
+                if max_score / target_score > .9:
+                    limit += 5
 
             # Loop difficulty back
             if state['gen'] % 100 == 0:
