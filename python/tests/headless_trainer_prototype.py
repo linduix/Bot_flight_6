@@ -34,7 +34,8 @@ if __name__ == '__main__':
             'threshold': 0.5,
             'best_drone': None,
             'historical_score': [],
-            'stage': 0
+            'stage': 0,
+            'difficulty': 15
         }
 
         # populate current gen and add base connections
@@ -74,6 +75,10 @@ if __name__ == '__main__':
             # time start
             start = time.time()
 
+            # Difficulty
+            state.setdefault('difficulty', 15)
+            difficulty = state['difficulty']
+
             return_code = 1
             if stage == 0:
                 # run scorer
@@ -92,7 +97,8 @@ if __name__ == '__main__':
                     config["width"],
                     config["height"],
                     config["meters_to_pixels"],
-                    limit=limit
+                    limit=limit,
+                    diff=difficulty
                 )
 
             # time end
@@ -114,15 +120,15 @@ if __name__ == '__main__':
             # get past 10 rolling average
             rolling_average = np.average(state['historical_score'][-10:])
             # calculate improvement from roling average change
-            improvement = rolling_average - np.average(state['historical_score'][-20:-10]) if len(state['historical_score']) > 10 else 0
+            improvement = rolling_average - np.average(state['historical_score'][-20:-10]) if len(state['historical_score']) > 20 else 0
 
             # get average connections
             connections = []
             for g in state['current_gen']:
-                sum = 0
+                enabled_sum = 0
                 for c in g.connections:
-                    sum += 1 if c.enabled else 0
-                connections.append(sum)
+                    enabled_sum += 1 if c.enabled else 0
+                connections.append(enabled_sum)
             average_connections = np.average(connections)
 
             # record best drone
@@ -156,9 +162,10 @@ if __name__ == '__main__':
                     f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
             else:
                 assert isinstance(completions, list)
+                c_time = np.average(completions) if completions else float("nan")
                 print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
-                    f'c time: {np.average(completions): .2f}s | improved: {improvement: .1f} | species: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
-                    f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
+                    f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species)} |',
+                    f'threshold: {state["threshold"]: .2f} | diff: {difficulty: .2f}m | bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
 
             # log to discord
             if state['gen'] % 50 == 0 and logging:
@@ -175,7 +182,7 @@ if __name__ == '__main__':
                     log = (
                         f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
                         f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
-                        f"completions: {len(completions)} | c time: {np.average(completions)}\n"
+                        f"completions: {len(completions)} | c time: {c_time: .2f}s | diff: {difficulty: .2f}m\n" # type: ignore
                         f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
                     )
                 discord_logger.log(log)
@@ -200,18 +207,27 @@ if __name__ == '__main__':
                 diff = abs(len(species) - (10+15)/2)
                 state["threshold"] *= 1 + (diff * 0.016)
 
+            # adjust difficulty
+            target = 0.1
+            if stage == 1:
+                assert isinstance(completions, list)
+                error = len(completions) / config['population'] - target
+                if abs(error) > 0.02:
+                    difficulty *= np.sqrt(error + 1)
+                    difficulty = max(difficulty, 10)
+                    state['difficulty'] = difficulty
+
+            # Loop difficulty back
+            if state['gen'] % 100 == 0:
+                difficulty = 15
+
             # save progress every 500 gens
             if state['gen'] % 500 == 0:
                 utils.save(state)
 
-        print('---------------------------')
-        if logging:
-            print('closing logger...')
-            discord_logger.log(f'{NAME}>> TRAINING TERM')
-        discord_logger.close()
-        utils.save(state)
-
     except KeyboardInterrupt:
+        print('Keyboard Interrupt')
+    finally:
         print('---------------------------')
         if logging:
             print('closing logger...')

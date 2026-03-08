@@ -160,7 +160,7 @@ def hover_scorer_headless(drones: list[Ai_Drone], screen_width, screen_height, m
 
     return return_code, scores, frame_count
 
-def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels, limit=10): # static target aquisition
+def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels, limit=10, diff=10): # static target aquisition
     # GOAL
     # 1. Max speed towards goal
     # 2. Precise breaking
@@ -170,17 +170,17 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
     R = math.hypot(screen_width, screen_height) / (2 * meters_to_pixels) # diagonal length from center
     # fixed target in center
     target = center
-    spawn = np.array([np.random.rand() * screen_width / meters_to_pixels, 
-                      np.random.rand() * screen_height/ meters_to_pixels])
+    # difficulty distance, random direction (circle)
+    theta = 2 * math.pi * np.random.rand()
+    spawn = center + diff * np.array([math.cos(theta), math.sin(theta)])
 
     # Fixed Vector Component Math
     eps = 1e-8                                # epsilon (near 0)
     a = target - spawn                        # ideal path, spawn --> target
     a0 = a / (math.hypot(a[0], a[1]) + eps)   # unit vector of ideal path
 
-    # Stop dist calcs
+    # Max drone acceleration
     max_a = drones[0].thruster_force * 2 / drones[0].M
-    stop_d = lambda v: (v**2) / (2*max_a + eps)
 
     # Scoring elements
     d_initial = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
@@ -228,20 +228,15 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
             e_perp_v = r0 - np.dot(r0, a0) * a0                    # component of position perp to ideal path
             e_perp_s: float = math.hypot(e_perp_v[0], e_perp_v[1]) # magnitude of perp error
 
+            safe_v = np.sqrt( 2 * max_a * d)
+            
             score = 0.0
-            # 1. Approach reward — total integrates to d_initial, completion always 4x this
-            if v_par_s > 0:
-                if d > stop_d(v_par_s):
-                    score += dt * v_par_s                      # +v m/s per second, sums to distance traveled
-                else:
-                    score -= dt * v_par_s * 1.5                # underbraking penalty, 1.5x the approach reward
 
-            # Maintaining max speed reward
-            if d > 1:
-                safe_v = np.sqrt( 2 * (2 * drone.thruster_force / drone.M) * d)
-                if v_par_s < safe_v:
-                    reward = 5 * dt * (v_par_s / safe_v)
-                    score += reward
+            # 1. Max speed Reward
+            if d > 1 and v_par_s > 0:
+                reward = 5 * dt * min(v_par_s / safe_v, 1)
+                overspeed = dt * max(v_par_s - safe_v, 0) ** 2
+                score += reward - overspeed 
 
             # 2. Penalise retreating at all distances
             if v_par_s < 0:
