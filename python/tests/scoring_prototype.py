@@ -184,7 +184,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
 
     # Scoring elements
     d_initial = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
-    base_bonus = max(400, d_initial * 4)
+    base_bonus = d_initial * 8
 
     # Drone init
     for drone in drones:

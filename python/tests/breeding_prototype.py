@@ -133,13 +133,13 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         ix += 1
 
     genome_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
+    raw_genome_scores = genome_scores.copy()
     
     # speciation sorted by score    
     species: list[list[Genome]] = speciate(threshold, current_gen)
     for i, s in enumerate(species):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
         # cull the worst half of the species
-        species[i] = s[:max(1, len(s)//2)]
 
     # fitness sharing and average fitness per species
     species_fitness = []
@@ -152,6 +152,9 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             fitness += genome_scores[genome]
         species_fitness.append(fitness)
 
+    for i, s in enumerate(species):
+        species[i] = s[:max(1, len(s)//2)]
+
     # species quota calculation
     quotas = []
     total_fitness = sum(species_fitness)
@@ -159,6 +162,35 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         # calculate quota as proportion of total fitness
         quota = int(fitness * poputlation_size / total_fitness)
         quotas.append(quota)
+    
+    # cap quotas
+    max_quota = int(poputlation_size * max(0.35, 1.1 / len(species)))
+    # excess = 0
+    for ix, quota in enumerate(quotas):
+        # excess += max(quota - max_quota, 0)
+        quotas[ix] = min(quota, max_quota)
+
+    i = 0
+    while sum(quotas) < poputlation_size:
+        ix = i % len(quotas)
+        if quotas[ix] < max_quota:
+            quotas[ix] += 1
+        i += 1
+
+    # if excess > 0:
+    #     non_max = len([1 for quota in quotas if quota < max_quota])
+    #     excess_per_species = excess // non_max
+        
+    #     for ix, quota in enumerate(quotas):
+    #         if quota < max_quota:
+    #             quotas[ix] += excess_per_species
+
+        # for i in range(excess):
+        #     for ix, quota in enumerate(quotas):
+        #         if quota < max_quota:
+        #             excess -= 1
+        #             quotas[ix] += 1
+        #             break
 
     # breeding
     next_gen: list[Genome] = []
@@ -175,7 +207,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             if np.random.rand() < 0.01:
                 parent2 = random.choices(current_gen, weights=adjusted_scores, k=1)[0]
             # breed baby
-            baby = crossover(parent1, parent2, genome_scores[parent1], genome_scores[parent2])
+            baby = crossover(parent1, parent2, raw_genome_scores[parent1], raw_genome_scores[parent2])
             # mutate baby
             mutate(baby, innovations)
             # add baby
