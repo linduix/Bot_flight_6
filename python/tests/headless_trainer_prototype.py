@@ -65,9 +65,10 @@ if __name__ == '__main__':
         if stage == 0:
             limit = 5
         else:
-            limit = 15
+            limit = 7
         done = False
         profile = False
+        first = True
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -157,35 +158,36 @@ if __name__ == '__main__':
 
             # log training stats to terminal
             if stage == 0:
-                print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .1f} |',
+                print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .1f} |',
                     f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
                     f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
-                print(f'stage: {stage} | gen: {state["gen"]} | avg score: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
+                print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
                     f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species)} |',
                     f'threshold: {state["threshold"]: .2f} | diff: {difficulty: .2f}m | bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
 
             # log to discord
-            if state['gen'] % 50 == 0 and logging:
+            if (state['gen'] % 50 == 0 or first) and logging:
                 print('logging...')
                 if stage == 0:
                     log = (
-                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
+                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
                         f"max score: {max_score:.1f} | improvement: {improvement:.1f} | "
                         f"limit: {limit}\n"
-                        f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
+                        f"{NAME}>> species distribution: {[len(s) for s in species]}"
                     )
                 else:
                     assert isinstance(completions, list)
                     log = (
-                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | avg score: {rolling_average:.2f} | "
+                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
                         f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
                         f"completions: {len(completions)} | c time: {c_time: .2f}s | diff: {difficulty: .2f}m\n" # type: ignore
-                        f"{NAME}>> species dsitribution: {[len(s) for s in species]}"
+                        f"{NAME}>> species distribution: {[len(s) for s in species]}"
                     )
                 discord_logger.log(log)
+                first = False
 
             # adjust species thresholds
             if len(species) < 10:
@@ -218,11 +220,12 @@ if __name__ == '__main__':
                     limit += 5
 
             # Loop difficulty back
-            if state['gen'] % 100 == 0:
-                difficulty = 15
+            if state['gen'] % 200 == 0:
+                difficulty = 5
+                state['difficulty'] = 5
 
             # save progress every 500 gens
-            if state['gen'] % 500 == 0:
+            if state['gen'] % 100 == 0:
                 utils.save(state)
 
     except KeyboardInterrupt:

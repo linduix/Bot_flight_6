@@ -64,7 +64,7 @@ config = {
     "population": 100,
     "width": 800,
     "height": 600,
-    "meters_to_pixels": 15
+    "meters_to_pixels": 8
 }
 
 if __name__ == '__main__':
