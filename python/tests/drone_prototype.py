@@ -242,13 +242,24 @@ class Ai_Drone(Drone):
         self.enabled = True
 
     def handle_input(self, keys, dt):
+        # reframe vectors to drone view
+        c = math.cos(self.angle)
+        s = math.sin(self.angle)
+
+        dworld = (self.waypoint[0] - self.pos[0], self.waypoint[1] - self.pos[1])
+        dxlocal = -dworld[0] * s + dworld[1] * c
+        dylocal =  dworld[0] * c + dworld[1] * s
+
+        vxlocal = -self.v[0] * s + self.v[1] * c
+        vylocal =  self.v[0] * c + self.v[1] * s
+
         # pass data through brain
         outputs = self.brain.forward(
-            delta_x = self.waypoint[0] - self.pos[0],
-            delta_y = self.waypoint[1] - self.pos[1],
+            delta_x = dxlocal,
+            delta_y = dylocal,
             angle = self.angle,
-            vel_x = self.v[0],
-            vel_y = self.v[1],
+            vel_x = vxlocal,
+            vel_y = vylocal,
             angular_vel = self.av,
             t1_angle = self.t1angle,
             t2_angle = self.t2angle

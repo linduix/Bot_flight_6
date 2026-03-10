@@ -213,7 +213,7 @@ if __name__ == '__main__':
                 if limit >= 30 and max_score/target_score > .95:
                     stage = 1
                     state['stage'] = 1
-                    limit = 10
+                    limit = 7
                     state['historical_score'] = []
                     utils.save(state)
                 if max_score / target_score > .9:
