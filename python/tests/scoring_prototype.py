@@ -213,7 +213,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
 
             # Variable Vector Component Math
             p, v = drone.pos, drone.v
-            v_mag: float = math.hypot(v[0], v[1])           
+            v_mag: float = math.hypot(v[0], v[1])
 
             r = target - p                                         # to objective vector
             d: float = math.hypot(r[0], r[1])                      # distance
@@ -222,21 +222,21 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
             v_par_s: float = np.dot(v, u)                          # signed mag of parallel v
             v_par_v = v_par_s * u                                  # vel in objective direction
             v_perp_v = v - v_par_v                                 # vector component not in ojective direction
-            v_perp_s: float = math.hypot(v_perp_v[0], v_perp_v[1]) # mag of perp v 
+            v_perp_s: float = math.hypot(v_perp_v[0], v_perp_v[1]) # mag of perp v
 
             r0 = p - spawn                                         # position from spawn
             e_perp_v = r0 - np.dot(r0, a0) * a0                    # component of position perp to ideal path
             e_perp_s: float = math.hypot(e_perp_v[0], e_perp_v[1]) # magnitude of perp error
 
             safe_v = np.sqrt( 2 * max_a * d)
-            
+
             score = 0.0
 
             # 1. Max speed Reward
             if d > 1 and v_par_s > 0:
                 reward = 5 * dt * min(v_par_s / safe_v, 1)
                 overspeed = dt * max(v_par_s - safe_v, 0) ** 2
-                score += reward - overspeed 
+                score += reward - overspeed
 
             # 2. Penalise retreating at all distances
             if v_par_s < 0:
@@ -260,7 +260,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
                 score -= dt * abs(drone.angle) * 0.5           # level hover
 
             # 7. Hover zone + completion
-            in_zone = d < 0.5 and v_mag < 0.5
+            in_zone = d < 0.5 and v_mag < 0.5 and abs(drone.angle) < 0.1
             if in_zone:
                 hovertime[ix] += dt
                 score += dt * 3.0
@@ -287,7 +287,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
 
         time += dt
     return 0, scores, completions
-            
+
 def stage1_viz(
     drones: list[Ai_Drone],
     screen_width,
@@ -389,7 +389,7 @@ def stage1_viz(
             e_perp_v = r0 - float(np.dot(r0, a0)) * a0
             e_perp = math.hypot(e_perp_v[0], e_perp_v[1])
 
- 
+
             score = 0.0
             # 1. Approach reward — total integrates to d_initial, completion always 4x this
             if v_par > 0:

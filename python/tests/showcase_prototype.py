@@ -7,6 +7,7 @@ import math
 import sys
 
 def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, screen, clock):
+    font = pg.font.SysFont(None, 28)
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
@@ -46,6 +47,9 @@ def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, s
         # disable if too far
         if dist > distance_limit:
             drone.reset_state(target)
+
+        dist_text = font.render(f"Distance to mouse: {dist:.2f} m", True, (230, 230, 230))
+        screen.blit(dist_text, (10, 10))
 
         # draw particles and body
         drone.draw_particles(screen, dt)
