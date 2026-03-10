@@ -13,6 +13,9 @@ def rotate_vector(v, angle):
     return np.array([v[0]*cos_a - v[1]*sin_a,
                      v[0]*sin_a + v[1]*cos_a])
 
+def normalize(x):
+    return math.copysign(math.log1p(abs(x)), x)
+
 def m_to_pixel_position(position: np.ndarray, surface_height, meters_to_pixels):
     position = position * meters_to_pixels
     return np.array([position[0], surface_height - position[1]])
@@ -255,11 +258,11 @@ class Ai_Drone(Drone):
 
         # pass data through brain
         outputs = self.brain.forward(
-            delta_x = dxlocal,
-            delta_y = dylocal,
+            delta_x = normalize(dxlocal),
+            delta_y = normalize(dylocal),
             angle = self.angle,
-            vel_x = vxlocal,
-            vel_y = vylocal,
+            vel_x = normalize(vxlocal),
+            vel_y = normalize(vylocal),
             angular_vel = self.av,
             t1_angle = self.t1angle,
             t2_angle = self.t2angle
