@@ -129,7 +129,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for score, g in zip(raw_scores, current_gen):
         edges = sum([1 for c in g.connections if c.enabled])
         nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
-        adjusted_scores[ix] = max(0.1, score - max(0, edges - 50) * 0.5 - max(0, nodes - 5) * 1)
+        adjusted_scores[ix] = max(0.1, score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 1)
         ix += 1
 
     genome_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}

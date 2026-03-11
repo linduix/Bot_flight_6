@@ -247,7 +247,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
             score -= dt * v_perp_s * prox
 
             # 4. Ideal path penalty
-            score -= dt * 0.1 * e_perp_s
+            score -= dt * 1 * e_perp_s
             # 5. Distance potential
             score += 0.5 * (prev_d[ix] - d)
             # Dilly Dally penalty

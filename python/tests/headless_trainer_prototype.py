@@ -14,7 +14,7 @@ import os
 import requests
 
 config = {
-    "population": 2000,
+    "population": 1000,
     "width": 800,
     "height": 600,
     "meters_to_pixels": 15
@@ -94,7 +94,7 @@ if __name__ == '__main__':
                 )
             else:
                 iterations = 0
-                if np.random.rand() < .3:
+                if np.random.rand() < .15:
                     # ocassionally easier difficulty so it dont forget earlier training
                     adj_diff *= np.random.rand() * 0.7
                     adj_diff = max(adj_diff, 10)
