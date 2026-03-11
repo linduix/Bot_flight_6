@@ -79,6 +79,7 @@ if __name__ == '__main__':
             # Difficulty
             state.setdefault('difficulty', 15)
             difficulty = state['difficulty']
+            adj_diff = difficulty
 
             return_code = 1
             if stage == 0:
@@ -93,13 +94,17 @@ if __name__ == '__main__':
                 )
             else:
                 iterations = 0
+                if np.random.rand() < .3:
+                    # ocassionally easier difficulty so it dont forget earlier training
+                    adj_diff *= np.random.rand() * 0.7
+                    adj_diff = max(adj_diff, 10)
                 return_code, scores, completions = stage1 (
                     drones,
                     config["width"],
                     config["height"],
                     config["meters_to_pixels"],
                     limit=limit,
-                    diff=difficulty
+                    diff=adj_diff
                 )
 
             # time end
@@ -166,7 +171,7 @@ if __name__ == '__main__':
                 c_time = np.average(completions) if completions else float("nan")
                 print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
                     f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species)} |',
-                    f'threshold: {state["threshold"]: .2f} | diff: {difficulty: .2f}m | bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
+                    f'threshold: {state["threshold"]: .2f} | diff: {adj_diff: .2f}m | bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
 
             # log to discord
             if (state['gen'] % 50 == 0 or first) and logging:
@@ -183,7 +188,7 @@ if __name__ == '__main__':
                     log = (
                         f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
                         f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
-                        f"completions: {len(completions)} | c time: {c_time: .2f}s | diff: {difficulty: .2f}m\n" # type: ignore
+                        f"completions: {len(completions)} | c time: {c_time: .2f}s | diff: {adj_diff: .2f}m\n" # type: ignore
                         f"{NAME}>> species distribution: {[len(s) for s in species]}"
                     )
                 discord_logger.log(log)
@@ -218,11 +223,6 @@ if __name__ == '__main__':
                     utils.save(state)
                 if max_score / target_score > .9:
                     limit += 5
-
-            # Loop difficulty back
-            if state['gen'] % 200 == 0:
-                difficulty = 5
-                state['difficulty'] = 5
 
             # save progress every 500 gens
             if state['gen'] % 100 == 0:
