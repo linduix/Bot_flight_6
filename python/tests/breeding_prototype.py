@@ -6,7 +6,7 @@ import random
 
 def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) -> Genome:
     # set parents
-    if score1 >= score2: 
+    if score1 >= score2:
         parent1, parent2 = genome1, genome2
     else:
         parent1, parent2 = genome2, genome1
@@ -69,7 +69,7 @@ def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4) -> float:
     # number of genes in bigger genome, larger than max innovation of smaller genome
     bigger = g1_connections if g1_max >= g2_max else g2_connections
     Excess = sum(1 for innovation in bigger.keys() if innovation > lower_bound)
-    
+
     # number of genes less than the lowerbound in xor genes
     different = g1_connections.keys() ^ g2_connections.keys()
     Disjoint = sum(1 for innovation in different if innovation <= lower_bound)
@@ -83,7 +83,7 @@ def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4) -> float:
             weight2 = g2_connections[node].weight
 
             Weight += abs(weight1 - weight2)
-            
+
         # average the weight differences
         Weight /= len(matching)
 
@@ -111,7 +111,7 @@ def speciate(threshold, genomes: list[Genome]) -> list[list[Genome]]:
                 species[i].append(genome)
                 match = True
                 break
-        
+
         # if no matches found, turn it into a rep
         if not match:
             representatives.append(genome)
@@ -134,12 +134,13 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
 
     genome_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
     raw_genome_scores = genome_scores.copy()
-    
-    # speciation sorted by score    
+
+    # speciation sorted by score
     species: list[list[Genome]] = speciate(threshold, current_gen)
     for i, s in enumerate(species):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
         # cull the worst half of the species
+        species[i] = s[:max(1, len(s)//2)]
 
     # fitness sharing and average fitness per species
     species_fitness = []
@@ -152,9 +153,6 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             fitness += genome_scores[genome]
         species_fitness.append(fitness)
 
-    for i, s in enumerate(species):
-        species[i] = s[:max(1, len(s)//2)]
-
     # species quota calculation
     quotas = []
     total_fitness = sum(species_fitness)
@@ -162,7 +160,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         # calculate quota as proportion of total fitness
         quota = int(fitness * poputlation_size / total_fitness)
         quotas.append(quota)
-    
+
     # cap quotas
     max_quota = int(poputlation_size * max(0.35, 1.1 / len(species)))
     # excess = 0
@@ -180,7 +178,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # if excess > 0:
     #     non_max = len([1 for quota in quotas if quota < max_quota])
     #     excess_per_species = excess // non_max
-        
+
     #     for ix, quota in enumerate(quotas):
     #         if quota < max_quota:
     #             quotas[ix] += excess_per_species
@@ -212,6 +210,6 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             mutate(baby, innovations)
             # add baby
             next_gen.append(baby)
-    
+
     species = speciate(threshold, next_gen)
     return next_gen, species
