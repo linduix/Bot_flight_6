@@ -7,7 +7,7 @@ class Species:
     def __init__(self, rep) -> None:
         self.rep: Genome = rep
         self.stagnation = 0
-        self.best_score = 0.0
+        self.best_score = -np.inf
 
 def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) -> Genome:
     # set parents
@@ -134,10 +134,14 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for score, g in zip(raw_scores, current_gen):
         edges = sum([1 for c in g.connections if c.enabled])
         nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
-        adjusted_scores[ix] = max(0.1, score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 1)
+        adjusted_scores[ix] = score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 1
         ix += 1
-
-    genome_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
+    
+    min_score = min(adjusted_scores)
+    shifted_scores = [s - min_score + 1e-6 for s in adjusted_scores]
+    
+    unshifted_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
+    genome_scores = {genome: score for genome, score in zip(current_gen, shifted_scores)}
     raw_genome_scores = genome_scores.copy()
 
     # speciation sorted by score
@@ -156,7 +160,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for i, s in enumerate(species):
         improved = False
         for g in species_pop[i]:
-            score = raw_genome_scores[g]
+            score = unshifted_scores[g]
             if score > s.best_score:
                 s.best_score = score
                 improved = True
@@ -231,7 +235,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             # choose parents
             parent1, parent2 = random.choices(s, weights=species_scores, k=2)
             if np.random.rand() < 0.01:
-                parent2 = random.choices(current_gen, weights=adjusted_scores, k=1)[0]
+                parent2 = random.choices(current_gen, weights=shifted_scores, k=1)[0]
             # breed baby
             baby = crossover(parent1, parent2, raw_genome_scores[parent1], raw_genome_scores[parent2])
             # mutate baby

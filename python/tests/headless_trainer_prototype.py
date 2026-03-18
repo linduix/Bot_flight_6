@@ -166,13 +166,13 @@ if __name__ == '__main__':
             if stage == 0:
                 print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .1f} |',
                     f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species_pop)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
-                    f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
+                    f'time: {elapsed: .2f}s')
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
                 print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
                     f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species_pop)} |',
-                    f'threshold: {state["threshold"]: .2f} | diff: {adj_diff: .2f}m | bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
+                    f'threshold: {state["threshold"]: .2f} | diff: {adj_diff: .2f}m | time: {elapsed: .2f}s')
 
             # log to discord
             if (state['gen'] % 50 == 0 or first) and logging:
@@ -221,6 +221,7 @@ if __name__ == '__main__':
                     state['stage'] = 1
                     limit = 7
                     state['historical_score'] = []
+                    state['species'] = []
                     utils.save(state)
                 if max_score / target_score > .9:
                     limit += 5

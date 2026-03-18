@@ -277,10 +277,11 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
             # 8. Out of bounds
             if d > R * 2:
                 drone.enabled = False
-                scores[ix] /= 2
+                if scores[ix] > 0:
+                    scores[ix] /= 2
 
             scores[ix] += score
-            scores[ix] = max(scores[ix], 0)
+            # scores[ix] = max(scores[ix], 0)
 
             # Update prev vals
             prev_d[ix] = d
