@@ -35,7 +35,8 @@ if __name__ == '__main__':
             'best_drone': None,
             'historical_score': [],
             'stage': 0,
-            'difficulty': 15
+            'difficulty': 15,
+            'species': []
         }
 
         # populate current gen and add base connections
@@ -127,7 +128,7 @@ if __name__ == '__main__':
             rolling_average = np.average(state['historical_score'][-10:])
             # calculate improvement from roling average change
             improvement = rolling_average - np.average(state['historical_score'][-20:-10]) if len(state['historical_score']) > 20 else 0
-
+            
             # get average connections
             connections = []
             for g in state['current_gen']:
@@ -148,11 +149,11 @@ if __name__ == '__main__':
                 pr.enable()
 
             # breed next generation
-            species = []
-            if not return_code:
-                next_gen, species = breed(state['current_gen'], scores, state['innovations'], config["population"], threshold=state["threshold"])
-                state['current_gen'] = next_gen
-                state['gen'] += 1
+            state.setdefault('species', [])
+            next_gen, species_pop, spec, deaths = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
+            state['current_gen'] = next_gen
+            state['gen'] += 1
+            state['species'] = spec
 
             # breed profiling
             if profile:
@@ -164,13 +165,13 @@ if __name__ == '__main__':
             # log training stats to terminal
             if stage == 0:
                 print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .1f} |',
-                    f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
+                    f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species_pop)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
                     f'bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
                 print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
-                    f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species)} |',
+                    f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species_pop)} |',
                     f'threshold: {state["threshold"]: .2f} | diff: {adj_diff: .2f}m | bloat: {average_connections/rolling_average: .2f} | time: {elapsed: .2f}s')
 
             # log to discord
@@ -181,7 +182,7 @@ if __name__ == '__main__':
                         f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
                         f"max score: {max_score:.1f} | improvement: {improvement:.1f} | "
                         f"limit: {limit}\n"
-                        f"{NAME}>> species distribution: {[len(s) for s in species]}"
+                        f"{NAME}>> species distribution: {[len(s) for s in species_pop]} | deaths: {deaths}"
                     )
                 else:
                     assert isinstance(completions, list)
@@ -189,17 +190,17 @@ if __name__ == '__main__':
                         f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
                         f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
                         f"completions: {len(completions)} | c time: {c_time: .2f}s | diff: {adj_diff: .2f}m\n" # type: ignore
-                        f"{NAME}>> species distribution: {[len(s) for s in species]}"
+                        f"{NAME}>> species distribution: {[len(s) for s in species_pop]} | deaths: {deaths}"
                     )
                 discord_logger.log(log)
                 first = False
 
             # adjust species thresholds
-            if len(species) < 10:
-                diff = abs(len(species) - (10+15)/2)
+            if len(species_pop) < 10:
+                diff = abs(len(species_pop) - (10+15)/2)
                 state["threshold"] *= max(1 - (diff * 0.016), 0.1)
-            elif len(species) > 15:
-                diff = abs(len(species) - (10+15)/2)
+            elif len(species_pop) > 15:
+                diff = abs(len(species_pop) - (10+15)/2)
                 state["threshold"] *= 1 + (diff * 0.016)
 
             # adjust difficulty

@@ -3,6 +3,11 @@ from genome_prototype import Genome, ConnectionGene, NodeGene, NodeType
 import numpy as np
 from copy import copy, deepcopy
 import random
+class Species:
+    def __init__(self, rep) -> None:
+        self.rep: Genome = rep
+        self.stagnation = 0
+        self.best_score = 0.0
 
 def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) -> Genome:
     # set parents
@@ -92,34 +97,34 @@ def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4) -> float:
 
     return distance
 
-def speciate(threshold, genomes: list[Genome]) -> list[list[Genome]]:
-    representatives = []
-    species = []
+def speciate(species, threshold, genomes: list[Genome]):
+    s: list[Species] = species    # species class array representing the species
+    species_pop = [[] for _ in s] # the population grouped into species, index matched to species array
 
     # loop through each genome
     for genome in genomes:
         # if reps empty add first genome as rep
-        if representatives == []:
-            representatives.append(genome)
-            species.append([genome])
+        if s == []:
+            s.append(Species(genome))
+            species_pop.append([genome])
             continue
 
         match = False
         # loop through and add to rep's species if distance < threshold
-        for i, representative in enumerate(representatives):
-            if distance(genome, representative) < threshold:
-                species[i].append(genome)
+        for i, spec in enumerate(s):
+            if distance(genome, spec.rep) < threshold:
+                species_pop[i].append(genome)
                 match = True
                 break
 
         # if no matches found, turn it into a rep
         if not match:
-            representatives.append(genome)
-            species.append([genome])
+            s.append(Species(genome))
+            species_pop.append([genome])
 
-    return species
+    return s, species_pop
 
-def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovations: Innovations, poputlation_size: int, threshold=3.0):
+def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovations: Innovations, poputlation_size: int, prev_species, threshold=3.0):
     # map genome to scores
     raw_scores = list(scores)
     adjusted_scores = [0.0] * len(raw_scores)
@@ -136,15 +141,53 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     raw_genome_scores = genome_scores.copy()
 
     # speciation sorted by score
-    species: list[list[Genome]] = speciate(threshold, current_gen)
-    for i, s in enumerate(species):
+    species, species_pop = speciate(prev_species, threshold, current_gen)
+    # filter out emtpty lists
+    species = [s for s, pop in zip(species, species_pop) if pop]
+    species_pop = [pop for pop in species_pop if pop] 
+    # sort and cull species
+    for i, s in enumerate(species_pop):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
         # cull the worst half of the species
-        species[i] = s[:max(1, len(s)//2)]
+        species_pop[i] = s[:max(1, len(s)//2)]
+
+    # stagnation counter
+    survivors = []
+    for i, s in enumerate(species):
+        improved = False
+        for g in species_pop[i]:
+            score = raw_genome_scores[g]
+            if score > s.best_score:
+                s.best_score = score
+                improved = True
+        if improved:
+            s.stagnation = 0
+        else:
+            s.stagnation += 1
+
+        if s.stagnation < 15:
+            survivors.append(i)
+    
+    best = max([s.best_score for s in species])
+    for i, s in enumerate(species):
+        if s.best_score == best:
+            if not i in survivors:
+                survivors.append(i)
+    deaths = len(species) - len(survivors)
+
+    # cull stagnated species
+    temp_species = []
+    temp_species_pop  = []
+    for i in survivors:
+        temp_species.append(species[i])
+        temp_species_pop.append(species_pop[i])
+    species = temp_species
+    species_pop = temp_species_pop
+
 
     # fitness sharing and average fitness per species
     species_fitness = []
-    for s in species:
+    for s in species_pop:
         fitness = 0
         for genome in s:
             # reduce score by size of species
@@ -162,7 +205,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         quotas.append(quota)
 
     # cap quotas
-    max_quota = int(poputlation_size * max(0.35, 1.1 / len(species)))
+    max_quota = int(poputlation_size * max(0.35, 1.1 / len(species_pop)))
     # excess = 0
     for ix, quota in enumerate(quotas):
         # excess += max(quota - max_quota, 0)
@@ -175,29 +218,14 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             quotas[ix] += 1
         i += 1
 
-    # if excess > 0:
-    #     non_max = len([1 for quota in quotas if quota < max_quota])
-    #     excess_per_species = excess // non_max
-
-    #     for ix, quota in enumerate(quotas):
-    #         if quota < max_quota:
-    #             quotas[ix] += excess_per_species
-
-        # for i in range(excess):
-        #     for ix, quota in enumerate(quotas):
-        #         if quota < max_quota:
-        #             excess -= 1
-        #             quotas[ix] += 1
-        #             break
-
     # breeding
     next_gen: list[Genome] = []
     # elietism
-    for s in species:
+    for s in species_pop:
         next_gen.append(deepcopy(s[0]))
 
     # breed rest of population
-    for i, s in enumerate(species):
+    for i, s in enumerate(species_pop):
         species_scores = [genome_scores[g] for g in s]
         for _ in range(quotas[i] - 1):
             # choose parents
@@ -211,5 +239,5 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             # add baby
             next_gen.append(baby)
 
-    species = speciate(threshold, next_gen)
-    return next_gen, species
+    # species = speciate(threshold, next_gen)
+    return next_gen, species_pop, species, deaths
