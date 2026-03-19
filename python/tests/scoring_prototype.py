@@ -281,7 +281,7 @@ def stage1(drones: list[Ai_Drone], screen_width, screen_height, meters_to_pixels
                     scores[ix] /= 2
 
             scores[ix] += score
-            # scores[ix] = max(scores[ix], 0)
+            scores[ix] = max(scores[ix], 0)
 
             # Update prev vals
             prev_d[ix] = d

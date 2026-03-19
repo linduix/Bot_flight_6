@@ -134,7 +134,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for score, g in zip(raw_scores, current_gen):
         edges = sum([1 for c in g.connections if c.enabled])
         nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
-        adjusted_scores[ix] = score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 1
+        adjusted_scores[ix] = max(0.1, score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 1)
         ix += 1
     
     min_score = min(adjusted_scores)
@@ -152,6 +152,8 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # sort and cull species
     for i, s in enumerate(species_pop):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
+        # update representative to best genome in species
+        species[i].rep = s[0]
         # cull the worst half of the species
         species_pop[i] = s[:max(1, len(s)//2)]
 
@@ -159,6 +161,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     survivors = []
     for i, s in enumerate(species):
         improved = False
+        current_best = max(unshifted_scores[g] for g in species_pop[i])
         for g in species_pop[i]:
             score = unshifted_scores[g]
             if score > s.best_score:
@@ -171,13 +174,20 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
 
         if s.stagnation < 15:
             survivors.append(i)
-    
+        else:
+            print(f"  [STAG] killing species {i} | stag={s.stagnation} | best_score={s.best_score:.2f} | current_best={current_best:.2f} | pop={len(species_pop[i])}")
+
     best = max([s.best_score for s in species])
     for i, s in enumerate(species):
         if s.best_score == best:
             if not i in survivors:
                 survivors.append(i)
+                print(f"  [SAFE] protecting best species {i} | best_score={s.best_score:.2f}")
     deaths = len(species) - len(survivors)
+
+    if deaths > 0:
+        print(f"  [CULL] {deaths}/{len(species)} species killed | survivors: {survivors} | species sizes: {[len(p) for p in species_pop]}")
+        print(f"  [CULL] survivor pop total: {sum(len(species_pop[i]) for i in survivors)} | killed pop total: {sum(len(species_pop[i]) for i in range(len(species)) if i not in survivors)}")
 
     # cull stagnated species
     temp_species = []
@@ -222,6 +232,9 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             quotas[ix] += 1
         i += 1
 
+    # log post-cull state
+    print(f"  [BREED] species remaining: {len(species)} | total pop in species: {sum(len(p) for p in species_pop)} | quotas: {quotas}")
+
     # breeding
     next_gen: list[Genome] = []
     # elietism
@@ -243,5 +256,4 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             # add baby
             next_gen.append(baby)
 
-    # species = speciate(threshold, next_gen)
     return next_gen, species_pop, species, deaths

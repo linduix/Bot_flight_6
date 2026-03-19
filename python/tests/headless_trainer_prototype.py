@@ -150,10 +150,14 @@ if __name__ == '__main__':
 
             # breed next generation
             state.setdefault('species', [])
-            next_gen, species_pop, spec, deaths = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
-            state['current_gen'] = next_gen
-            state['gen'] += 1
-            state['species'] = spec
+            if not return_code:
+                next_gen, species_pop, spec, deaths = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
+                state['current_gen'] = next_gen
+                state['gen'] += 1
+                state['species'] = spec
+            else:
+                species_pop = []
+                deaths = 0
 
             # breed profiling
             if profile:
