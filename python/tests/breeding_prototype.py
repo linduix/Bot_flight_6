@@ -159,6 +159,8 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
 
     # stagnation counter
     survivors = []
+    stagnant_killed = 0
+    killed_genomes = 0
     for i, s in enumerate(species):
         improved = False
         current_best = max(unshifted_scores[g] for g in species_pop[i])
@@ -175,19 +177,17 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         if s.stagnation < 15:
             survivors.append(i)
         else:
-            print(f"  [STAG] killing species {i} | stag={s.stagnation} | best_score={s.best_score:.2f} | current_best={current_best:.2f} | pop={len(species_pop[i])}")
+            stagnant_killed += 1
+            killed_genomes += len(species_pop[i])
 
     best = max([s.best_score for s in species])
     for i, s in enumerate(species):
         if s.best_score == best:
             if not i in survivors:
                 survivors.append(i)
-                print(f"  [SAFE] protecting best species {i} | best_score={s.best_score:.2f}")
+                stagnant_killed -= 1
+                killed_genomes -= len(species_pop[i])
     deaths = len(species) - len(survivors)
-
-    if deaths > 0:
-        print(f"  [CULL] {deaths}/{len(species)} species killed | survivors: {survivors} | species sizes: {[len(p) for p in species_pop]}")
-        print(f"  [CULL] survivor pop total: {sum(len(species_pop[i]) for i in survivors)} | killed pop total: {sum(len(species_pop[i]) for i in range(len(species)) if i not in survivors)}")
 
     # cull stagnated species
     temp_species = []
@@ -232,8 +232,11 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             quotas[ix] += 1
         i += 1
 
-    # log post-cull state
-    print(f"  [BREED] species remaining: {len(species)} | total pop in species: {sum(len(p) for p in species_pop)} | quotas: {quotas}")
+    # cull stats returned to caller
+    cull_stats = {
+        'stagnant_killed': stagnant_killed,
+        'killed_genomes': killed_genomes,
+    }
 
     # breeding
     next_gen: list[Genome] = []
@@ -256,4 +259,4 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             # add baby
             next_gen.append(baby)
 
-    return next_gen, species_pop, species, deaths
+    return next_gen, species_pop, species, deaths, cull_stats

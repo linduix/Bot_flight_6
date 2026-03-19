@@ -170,8 +170,8 @@ def test_speciate():
         g = Genome.new()
         add_connection(g, inn)
         genomes.append(g)
-    species = speciate(3.0, genomes)
-    total = sum(len(s) for s in species)
+    species, species_pop = speciate([], 3.0, genomes)
+    total = sum(len(s) for s in species_pop)
     assert total == 10
 
 def test_breed():
@@ -182,7 +182,7 @@ def test_breed():
         add_connection(g, inn)
         genomes.append(g)
     scores = [np.random.rand() for _ in genomes]
-    next_generation = breed(genomes, scores, inn, poputlation_size=20)
+    next_generation, *_ = breed(genomes, scores, inn, poputlation_size=20, prev_species=[])
     assert len(next_generation) > 0
 
 test("crossover() produces valid child", test_crossover)

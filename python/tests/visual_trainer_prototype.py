@@ -103,7 +103,7 @@ if __name__ == '__main__':
         # breed next generation
         species = []
         if not return_code:
-            next_gen, species = breed(state['current_gen'], scores, state['innovations'], config["population"], threshold=state["threshold"])
+            next_gen, species, *_ = breed(state['current_gen'], scores, state['innovations'], config["population"], threshold=state["threshold"])
             state['current_gen'] = next_gen
             state['gen'] += 1
 

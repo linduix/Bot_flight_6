@@ -70,6 +70,8 @@ if __name__ == '__main__':
         done = False
         profile = False
         first = True
+        best_ever = max(state['historical_score']) if state.get('historical_score') else 0
+        training_start = time.time()
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -151,13 +153,14 @@ if __name__ == '__main__':
             # breed next generation
             state.setdefault('species', [])
             if not return_code:
-                next_gen, species_pop, spec, deaths = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
+                next_gen, species_pop, spec, deaths, cull_stats = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
                 state['current_gen'] = next_gen
                 state['gen'] += 1
                 state['species'] = spec
             else:
                 species_pop = []
                 deaths = 0
+                cull_stats = {'stagnant_killed': 0, 'killed_genomes': 0}
 
             # breed profiling
             if profile:
@@ -166,37 +169,64 @@ if __name__ == '__main__':
                 print("wrote breed0.prof")
                 profile = False
 
+            # compute stats for logging
+            best_ever = max(best_ever, max_score)
+            avg_score = np.average(scores)
+            pop_size = len(scores)
+            prev_max = state['historical_score'][-2] if len(state['historical_score']) >= 2 else max_score
+            score_delta = max_score - prev_max
+            total_elapsed = time.time() - training_start
+            gen_rate = 60 / elapsed if elapsed > 0 else 0
+            # format total elapsed
+            t_hrs, t_rem = divmod(total_elapsed, 3600)
+            t_min, t_sec = divmod(t_rem, 60)
+            if t_hrs > 0:
+                elapsed_fmt = f"{int(t_hrs)}h {int(t_min)}m"
+            else:
+                elapsed_fmt = f"{int(t_min)}m {int(t_sec)}s"
+
+            # species line
+            species_info = f"count: {len(species_pop)}"
+            if cull_stats['stagnant_killed'] > 0:
+                species_info += f" | stagnant killed: {cull_stats['stagnant_killed']} ({cull_stats['killed_genomes']} genomes removed)"
+
             # log training stats to terminal
+            delta_sign = "+" if score_delta >= 0 else ""
+            print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
+            print(f"  score    max: {max_score:.2f} | avg: {avg_score:.2f} | rolling: {rolling_average:.2f} | best ever: {best_ever:.2f} | Δ: {delta_sign}{score_delta:.1f}")
             if stage == 0:
-                print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .1f} |',
-                    f'target score: {target_score : .0f} | improvement: {improvement: .1f} | species count: {len(species_pop)} | threshold: {state["threshold"]: .2f} | limit: {limit}s |',
-                    f'time: {elapsed: .2f}s')
+                pct = max_score / target_score * 100 if target_score > 0 else 0
+                print(f"  progress target: {target_score:.0f} ({pct:.1f}%) | improvement: {improvement:.1f} | limit: {limit}s")
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
-                print(f'stage: {stage} | gen: {state["gen"]} | rolling max: {rolling_average: .2f} | max score: {max_score: .2f} | complete: {len(completions)} |',
-                    f'c time: {c_time: .2f}s | improved: {improvement: .1f} | species: {len(species_pop)} |',
-                    f'threshold: {state["threshold"]: .2f} | diff: {adj_diff: .2f}m | time: {elapsed: .2f}s')
+                comp_pct = len(completions) / pop_size * 100
+                print(f"  progress complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | improvement: {improvement:.1f}")
+            print(f"  species  {species_info}")
+            print(f"  genome   avg connections: {average_connections:.1f} | pop: {pop_size}")
+            print(f"  timing   gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
             # log to discord
             if (state['gen'] % 50 == 0 or first) and logging:
                 print('logging...')
+                delta_str = f"{delta_sign}{score_delta:.1f}"
+                lines = [
+                    f"**{NAME} | S{stage} Gen {state['gen']}**",
+                    f"```",
+                    f"Score    max: {max_score:.2f}  avg: {avg_score:.2f}  rolling: {rolling_average:.2f}  best: {best_ever:.2f}  Δ{delta_str}",
+                ]
                 if stage == 0:
-                    log = (
-                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
-                        f"max score: {max_score:.1f} | improvement: {improvement:.1f} | "
-                        f"limit: {limit}\n"
-                        f"{NAME}>> species distribution: {[len(s) for s in species_pop]} | deaths: {deaths}"
-                    )
+                    lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
                 else:
                     assert isinstance(completions, list)
-                    log = (
-                        f"{NAME}>> stage: {stage} | gen: {state['gen']} | rolling max: {rolling_average:.2f} | "
-                        f"max score: {max_score:.2f} | improvement: {improvement:.1f} |"
-                        f"completions: {len(completions)} | c time: {c_time: .2f}s | diff: {adj_diff: .2f}m\n" # type: ignore
-                        f"{NAME}>> species distribution: {[len(s) for s in species_pop]} | deaths: {deaths}"
-                    )
-                discord_logger.log(log)
+                    lines.append(f"Progress complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%)  c_time: {c_time:.2f}s  diff: {adj_diff:.2f}m")
+                lines += [
+                    f"Species  {species_info}",
+                    f"Genome   avg conn: {average_connections:.1f}  pop: {pop_size}",
+                    f"Timing   gen: {elapsed:.2f}s  rate: {gen_rate:.1f}/min  elapsed: {elapsed_fmt}",
+                    f"```",
+                ]
+                discord_logger.log("\n".join(lines))
                 first = False
 
             # adjust species thresholds
