@@ -256,6 +256,7 @@ if __name__ == '__main__':
                     limit = 7
                     state['historical_score'] = []
                     state['species'] = []
+                    first = True
                     utils.save(state)
                 if max_score / target_score > .9:
                     limit += 5
