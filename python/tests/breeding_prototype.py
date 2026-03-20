@@ -3,11 +3,17 @@ from genome_prototype import Genome, ConnectionGene, NodeGene, NodeType
 import numpy as np
 from copy import copy, deepcopy
 import random
+STAGNATION_LIMIT = 15
+STAGNATION_CHANCES = 1          # lives before death (0 = instant kill at limit)
+PROTECTION_WINDOW = 10          # avg of last N best-genome scores for protection
+
 class Species:
     def __init__(self, rep) -> None:
         self.rep: Genome = rep
         self.stagnation = 0
         self.best_score = -np.inf
+        self.chances = STAGNATION_CHANCES
+        self.best_history: list[float] = []   # best genome score per gen
 
 def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) -> Genome:
     # set parents
@@ -164,6 +170,10 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for i, s in enumerate(species):
         improved = False
         current_best = max(unshifted_scores[g] for g in species_pop[i])
+        s.best_history.append(current_best)
+        if len(s.best_history) > PROTECTION_WINDOW:
+            s.best_history.pop(0)
+
         for g in species_pop[i]:
             score = unshifted_scores[g]
             if score > s.best_score:
@@ -174,16 +184,25 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         else:
             s.stagnation += 1
 
-        if s.stagnation < 15:
+        if s.stagnation < STAGNATION_LIMIT:
+            survivors.append(i)
+        elif s.chances > 0:
+            # burn a chance, reset stagnation, keep alive
+            s.chances -= 1
+            s.stagnation = 0
             survivors.append(i)
         else:
             stagnant_killed += 1
             killed_genomes += len(species_pop[i])
 
-    best = max([s.best_score for s in species])
+    # protection: species with highest avg of last N best scores is immune
+    def protection_score(s):
+        return np.mean(s.best_history) if s.best_history else -np.inf
+
+    best_prot = max(protection_score(s) for s in species)
     for i, s in enumerate(species):
-        if s.best_score == best:
-            if not i in survivors:
+        if protection_score(s) == best_prot:
+            if i not in survivors:
                 survivors.append(i)
                 stagnant_killed -= 1
                 killed_genomes -= len(species_pop[i])
