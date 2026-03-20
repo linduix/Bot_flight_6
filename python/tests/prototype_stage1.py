@@ -30,15 +30,14 @@ DEFAULT_DIFFICULTY = 15.0
 
 def pick_direction(dir_stats: dict) -> tuple[str, float, float]:
     """Pick a direction weighted toward lowest difficulty (weakest).
-
     Returns (dir_name, theta, difficulty).
     """
     diffs = np.array([dir_stats[name]['difficulty'] for name in DIR_NAMES])
 
-    # Lower difficulty → higher weight.  Invert relative to max.
+    # Lower difficulty → higher weight. Square the linear gap for strong convergence pressure.
     max_diff = diffs.max()
-    # weight = max_diff - diff + floor  (floor keeps mastered directions in rotation)
-    weights = max_diff - diffs + max(max_diff * 0.1, 1.0)
+    gap = max_diff - diffs                             # gap=0 for hardest, largest for easiest
+    weights = (gap + max(max_diff * 0.05, 1.0)) ** 2   # floor ensures hardest direction still gets picked (rarely)
     weights /= weights.sum()
 
     idx = int(np.random.choice(len(DIR_NAMES), p=weights))
