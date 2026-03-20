@@ -82,6 +82,7 @@ if __name__ == '__main__':
 
         # ── 50-gen stats buffer for discord ──
         LOG_INTERVAL = 50
+        SCORE_BINS = [0, 10, 50, 100, 200, 400, 600, 1000]
         log_buf = {
             'max_scores': [],
             'avg_scores': [],
@@ -93,6 +94,9 @@ if __name__ == '__main__':
             'killed_genomes': 0,
             'connections': [],      # avg connections each gen
             'gen_times': [],        # seconds per gen
+            'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),  # cumulative histogram
+            'completer_conn': [],   # avg enabled connections for completers each gen
+            'non_completer_conn': [],  # avg enabled connections for non-completers each gen
         }
         while not done:
             #create drones
@@ -129,7 +133,7 @@ if __name__ == '__main__':
                 #     adj_diff *= np.random.rand() * 0.7
                 #     adj_diff = max(adj_diff, 10)
 
-                return_code, scores, completions = stage1(
+                return_code, scores, completions, completed = stage1(
                     drones,
                     config["width"],
                     config["height"],
@@ -243,12 +247,20 @@ if __name__ == '__main__':
             log_buf['gen_times'].append(elapsed)
             log_buf['stagnant_killed'] += cull_stats['stagnant_killed']
             log_buf['killed_genomes'] += cull_stats['killed_genomes']
+            # score distribution histogram
+            log_buf['score_hist'] += np.histogram(scores, bins=SCORE_BINS)[0]
+            # completer vs non-completer complexity
             if stage == 1:
                 assert isinstance(completions, list)
                 log_buf['comp_counts'].append(len(completions))
                 log_buf['comp_times'].extend(completions)
                 log_buf['dir_counts'][dir_name] = log_buf['dir_counts'].get(dir_name, 0) + 1
                 log_buf['dir_comps'][dir_name] = log_buf['dir_comps'].get(dir_name, 0) + len(completions)
+                non_completed = [i for i in range(len(drones)) if i not in completed]
+                if completed:
+                    log_buf['completer_conn'].append(np.mean([len([c for c in drones[i].brain.genome.connections if c.enabled]) for i in completed]))
+                if non_completed:
+                    log_buf['non_completer_conn'].append(np.mean([len([c for c in drones[i].brain.genome.connections if c.enabled]) for i in non_completed]))
 
             # log to discord
             if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
@@ -286,6 +298,18 @@ if __name__ == '__main__':
                     lines.append(f"Dirs     {' '.join(dir_parts)}")
                     lines.append(f"Diffs    {format_dir_rates(state['dir_stats'])}")
 
+                # score distribution
+                hist = log_buf['score_hist']
+                bin_labels = [f"{SCORE_BINS[i]}-{SCORE_BINS[i+1]}" for i in range(len(SCORE_BINS)-1)]
+                dist_parts = [f"{lbl}: {cnt}" for lbl, cnt in zip(bin_labels, hist)]
+                lines.append(f"ScoreDist  {' | '.join(dist_parts)}")
+
+                # completer vs non-completer complexity
+                if stage == 1:
+                    avg_cc = np.mean(log_buf['completer_conn']) if log_buf['completer_conn'] else 0
+                    avg_nc = np.mean(log_buf['non_completer_conn']) if log_buf['non_completer_conn'] else 0
+                    lines.append(f"Complex  completers: {avg_cc:.1f}  non-completers: {avg_nc:.1f}")
+
                 # species & stagnation over window
                 stag_info = f"now: {len(species_pop)}"
                 if log_buf['stagnant_killed'] > 0:
@@ -315,6 +339,9 @@ if __name__ == '__main__':
                     'killed_genomes': 0,
                     'connections': [],
                     'gen_times': [],
+                    'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),
+                    'completer_conn': [],
+                    'non_completer_conn': [],
                 }
 
             # adjust species thresholds

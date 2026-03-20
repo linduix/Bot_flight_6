@@ -243,4 +243,4 @@ def stage1(
             eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
             scores[ix] *= eff
 
-    return 0, scores, completions
+    return 0, scores, completions, completed
