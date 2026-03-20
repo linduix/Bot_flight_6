@@ -1,8 +1,9 @@
 from drone_prototype import Ai_Drone
-from scoring_prototype import hover_scorer_headless, stage1
+from scoring_prototype import hover_scorer_headless
+from prototype_stage1 import stage1, pick_direction, adjust_dir_difficulty, format_dir_rates, make_dir_stats, DIR_NAMES
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
-from breeding_prototype import breed
+from breeding_prototype import breed, STAGNATION_CHANCES
 from dotenv import load_dotenv
 import util_prototype as utils
 import numpy as np
@@ -24,6 +25,12 @@ if __name__ == '__main__':
     # load saved state
     if utils.save_path.exists():
         state = utils.load()
+        # patch old Species objects missing new fields
+        for s in state.get('species', []):
+            if not hasattr(s, 'best_history'):
+                s.best_history = []
+            if not hasattr(s, 'chances'):
+                s.chances = STAGNATION_CHANCES
     else:
         print('created raw gen')
         # create the training state
@@ -72,6 +79,21 @@ if __name__ == '__main__':
         first = True
         best_ever = max(state['historical_score']) if state.get('historical_score') else 0
         training_start = time.time()
+
+        # ── 50-gen stats buffer for discord ──
+        LOG_INTERVAL = 50
+        log_buf = {
+            'max_scores': [],
+            'avg_scores': [],
+            'comp_counts': [],      # number of completions each gen
+            'comp_times': [],       # individual completion times (flat)
+            'dir_counts': {},       # direction -> number of gens tested
+            'dir_comps': {},        # direction -> total completions
+            'stagnant_killed': 0,
+            'killed_genomes': 0,
+            'connections': [],      # avg connections each gen
+            'gen_times': [],        # seconds per gen
+        }
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -97,17 +119,24 @@ if __name__ == '__main__':
                 )
             else:
                 iterations = 0
-                if np.random.rand() < .15:
-                    # ocassionally easier difficulty so it dont forget earlier training
-                    adj_diff *= np.random.rand() * 0.7
-                    adj_diff = max(adj_diff, 10)
-                return_code, scores, completions = stage1 (
+
+                # Directional balance — pick direction, get per-direction difficulty
+                state.setdefault('dir_stats', make_dir_stats(state.get('difficulty', 15)))
+                dir_name, dir_theta, adj_diff = pick_direction(state['dir_stats'])
+
+                # # Occasionally easier difficulty so it doesn't forget earlier training
+                # if np.random.rand() < .15:
+                #     adj_diff *= np.random.rand() * 0.7
+                #     adj_diff = max(adj_diff, 10)
+
+                return_code, scores, completions = stage1(
                     drones,
                     config["width"],
                     config["height"],
                     config["meters_to_pixels"],
                     limit=limit,
-                    diff=adj_diff
+                    diff=adj_diff,
+                    theta=dir_theta,
                 )
 
             # time end
@@ -202,32 +231,91 @@ if __name__ == '__main__':
                 c_time = np.average(completions) if completions else float("nan")
                 comp_pct = len(completions) / pop_size * 100
                 print(f"  progress complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | improvement: {improvement:.1f}")
+                print(f"  direction {dir_name} | diffs: {format_dir_rates(state['dir_stats'])}")
             print(f"  species  {species_info}")
             print(f"  genome   avg connections: {average_connections:.1f} | pop: {pop_size}")
             print(f"  timing   gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
+            # ── accumulate stats into 50-gen buffer ──
+            log_buf['max_scores'].append(max_score)
+            log_buf['avg_scores'].append(avg_score)
+            log_buf['connections'].append(average_connections)
+            log_buf['gen_times'].append(elapsed)
+            log_buf['stagnant_killed'] += cull_stats['stagnant_killed']
+            log_buf['killed_genomes'] += cull_stats['killed_genomes']
+            if stage == 1:
+                assert isinstance(completions, list)
+                log_buf['comp_counts'].append(len(completions))
+                log_buf['comp_times'].extend(completions)
+                log_buf['dir_counts'][dir_name] = log_buf['dir_counts'].get(dir_name, 0) + 1
+                log_buf['dir_comps'][dir_name] = log_buf['dir_comps'].get(dir_name, 0) + len(completions)
+
             # log to discord
-            if (state['gen'] % 50 == 0 or first) and logging:
+            if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
                 print('logging...')
-                delta_str = f"{delta_sign}{score_delta:.1f}"
+                n = len(log_buf['max_scores'])
+                buf_max = max(log_buf['max_scores'])
+                buf_min = min(log_buf['max_scores'])
+                buf_avg_max = np.average(log_buf['max_scores'])
+                buf_avg_avg = np.average(log_buf['avg_scores'])
+
                 lines = [
-                    f"**{NAME} | S{stage} Gen {state['gen']}**",
+                    f"**{NAME} | S{stage} Gen {state['gen']}** ({n} gens)",
                     f"```",
-                    f"Score    max: {max_score:.2f}  avg: {avg_score:.2f}  rolling: {rolling_average:.2f}  best: {best_ever:.2f}  Δ{delta_str}",
+                    f"Score    peak: {buf_max:.0f}  low: {buf_min:.0f}  avg_best: {buf_avg_max:.0f}  avg_pop: {buf_avg_avg:.1f}",
+                    f"         rolling: {rolling_average:.2f}  best_ever: {best_ever:.2f}",
                 ]
                 if stage == 0:
                     lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
                 else:
-                    assert isinstance(completions, list)
-                    lines.append(f"Progress complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%)  c_time: {c_time:.2f}s  diff: {adj_diff:.2f}m")
+                    # completion stats over window
+                    avg_comp = np.average(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
+                    max_comp = max(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
+                    avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
+                    comp_rate = avg_comp / pop_size * 100
+
+                    lines.append(f"Complet  avg: {avg_comp:.0f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp}  avg_time: {avg_ct:.2f}s")
+
+                    # per-direction summary
+                    dir_parts = []
+                    for d in DIR_NAMES:
+                        cnt = log_buf['dir_counts'].get(d, 0)
+                        if cnt > 0:
+                            avg_c = log_buf['dir_comps'][d] / cnt
+                            dir_parts.append(f"{d}:{cnt}g/{avg_c:.0f}c")
+                    lines.append(f"Dirs     {' '.join(dir_parts)}")
+                    lines.append(f"Diffs    {format_dir_rates(state['dir_stats'])}")
+
+                # species & stagnation over window
+                stag_info = f"now: {len(species_pop)}"
+                if log_buf['stagnant_killed'] > 0:
+                    stag_info += f"  stag_killed: {log_buf['stagnant_killed']} ({log_buf['killed_genomes']} genomes)"
+                lines.append(f"Species  {stag_info}")
+
+                avg_conn = np.average(log_buf['connections'])
+                conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0
+                avg_gt = np.average(log_buf['gen_times'])
                 lines += [
-                    f"Species  {species_info}",
-                    f"Genome   avg conn: {average_connections:.1f}  pop: {pop_size}",
-                    f"Timing   gen: {elapsed:.2f}s  rate: {gen_rate:.1f}/min  elapsed: {elapsed_fmt}",
+                    f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  pop: {pop_size}",
+                    f"Timing   avg: {avg_gt:.2f}s/gen  rate: {60/avg_gt:.1f}/min  elapsed: {elapsed_fmt}",
                     f"```",
                 ]
                 discord_logger.log("\n".join(lines))
                 first = False
+
+                # reset buffer
+                log_buf = {
+                    'max_scores': [],
+                    'avg_scores': [],
+                    'comp_counts': [],
+                    'comp_times': [],
+                    'dir_counts': {},
+                    'dir_comps': {},
+                    'stagnant_killed': 0,
+                    'killed_genomes': 0,
+                    'connections': [],
+                    'gen_times': [],
+                }
 
             # adjust species thresholds
             if len(species_pop) < 10:
@@ -237,15 +325,10 @@ if __name__ == '__main__':
                 diff = abs(len(species_pop) - (10+15)/2)
                 state["threshold"] *= 1 + (diff * 0.016)
 
-            # adjust difficulty
-            target = 0.1
+            # adjust per-direction difficulty
             if stage == 1:
                 assert isinstance(completions, list)
-                error = len(completions) / config['population'] - target
-                if abs(error) > 0.02:
-                    difficulty *= np.sqrt(error + 1)
-                    difficulty = max(difficulty, 10)
-                    state['difficulty'] = difficulty
+                adjust_dir_difficulty(state['dir_stats'], dir_name, len(completions), config['population'])
 
             # progress hover stage
             if stage == 0:
