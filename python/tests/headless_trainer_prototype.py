@@ -15,7 +15,7 @@ import os
 import requests
 
 config = {
-    "population": 1000,
+    "population": 500,
     "width": 800,
     "height": 600,
     "meters_to_pixels": 15
@@ -81,7 +81,7 @@ if __name__ == '__main__':
         training_start = time.time()
 
         # ── 50-gen stats buffer for discord ──
-        LOG_INTERVAL = 50
+        LOG_INTERVAL = 5
         SCORE_BINS = [0, 10, 50, 100, 200, 400, 600, 1000]
         log_buf = {
             'max_scores': [],
@@ -294,27 +294,27 @@ if __name__ == '__main__':
                         cnt = log_buf['dir_counts'].get(d, 0)
                         if cnt > 0:
                             avg_c = log_buf['dir_comps'][d] / cnt
-                            dir_parts.append(f"{d}:{cnt}g/{avg_c:.0f}c")
+                            dir_parts.append(f"{d}:{cnt}x")
                     lines.append(f"Dirs     {' '.join(dir_parts)}")
                     lines.append(f"Diffs    {format_dir_rates(state['dir_stats'])}")
-
-                # score distribution
-                hist = log_buf['score_hist']
-                bin_labels = [f"{SCORE_BINS[i]}-{SCORE_BINS[i+1]}" for i in range(len(SCORE_BINS)-1)]
-                dist_parts = [f"{lbl}: {cnt}" for lbl, cnt in zip(bin_labels, hist)]
-                lines.append(f"ScoreDist  {' | '.join(dist_parts)}")
-
-                # completer vs non-completer complexity
-                if stage == 1:
-                    avg_cc = np.mean(log_buf['completer_conn']) if log_buf['completer_conn'] else 0
-                    avg_nc = np.mean(log_buf['non_completer_conn']) if log_buf['non_completer_conn'] else 0
-                    lines.append(f"Complex  completers: {avg_cc:.1f}  non-completers: {avg_nc:.1f}")
 
                 # species & stagnation over window
                 stag_info = f"now: {len(species_pop)}"
                 if log_buf['stagnant_killed'] > 0:
                     stag_info += f"  stag_killed: {log_buf['stagnant_killed']} ({log_buf['killed_genomes']} genomes)"
                 lines.append(f"Species  {stag_info}")
+
+                # score distribution
+                hist = log_buf['score_hist']
+                bin_labels = [f"{SCORE_BINS[i]}-{SCORE_BINS[i+1]}" for i in range(len(SCORE_BINS)-1)]
+                dist_parts = [f"{lbl}: {cnt}" for lbl, cnt in zip(bin_labels, hist)]
+                lines.append(f"ScoreDis {' | '.join(dist_parts)}")
+
+                # completer vs non-completer complexity
+                if stage == 1:
+                    avg_cc = np.mean(log_buf['completer_conn']) if log_buf['completer_conn'] else 0
+                    avg_nc = np.mean(log_buf['non_completer_conn']) if log_buf['non_completer_conn'] else 0
+                    lines.append(f"Complex  completers: {avg_cc:.1f}  non-completers: {avg_nc:.1f}")
 
                 avg_conn = np.average(log_buf['connections'])
                 conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0
@@ -324,6 +324,7 @@ if __name__ == '__main__':
                     f"Timing   avg: {avg_gt:.2f}s/gen  rate: {60/avg_gt:.1f}/min  elapsed: {elapsed_fmt}",
                     f"```",
                 ]
+                
                 discord_logger.log("\n".join(lines))
                 first = False
 
@@ -347,10 +348,10 @@ if __name__ == '__main__':
             # adjust species thresholds
             if len(species_pop) < 10:
                 diff = abs(len(species_pop) - (10+15)/2)
-                state["threshold"] *= max(1 - (diff * 0.016), 0.1)
+                state["threshold"] *= np.sqrt(max(1 - (diff * 0.01), 0.1))
             elif len(species_pop) > 15:
                 diff = abs(len(species_pop) - (10+15)/2)
-                state["threshold"] *= 1 + (diff * 0.016)
+                state["threshold"] *= np.sqrt(1 + (diff * 0.01))
 
             # adjust per-direction difficulty
             if stage == 1:
@@ -365,6 +366,7 @@ if __name__ == '__main__':
                     state['stage'] = 1
                     limit = 7
                     state['historical_score'] = []
+                    best_ever = 0
                     state['species'] = []
                     first = True
                     utils.save(state)

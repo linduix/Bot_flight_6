@@ -100,7 +100,7 @@ def stage1(
 
     # Scoring constants — derived from drone physics, never hardcoded
     d_initial    = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
-    base_bonus   = max(400, d_initial * 4)
+    base_bonus   = max(60, d_initial * 4)
     safe_v_brake = math.sqrt(2 * max_a * BRAKE_ZONE)
 
     # Out-of-bounds: circle centered on midpoint of spawn↔target
@@ -242,5 +242,112 @@ def stage1(
         if scores[ix] > 0 and ix not in completed:
             eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
             scores[ix] *= eff
+
+    return 0, scores, completions, completed
+
+
+def stage1_vmax_test(
+    drones: list[Ai_Drone],
+    screen_width: int,
+    screen_height: int,
+    meters_to_pixels: float,
+    limit: float = 10,
+    diff: float = 10,
+    theta: float | None = None,
+):
+    """Stripped-down stage 1: only the v_max parabola + efficiency-weighted completion bonus.
+    No lateral penalty, no feathering, no hover rewards — pure approach signal."""
+    eps = 1e-8
+    dt  = 0.016
+    N   = len(drones)
+
+    center = np.array((
+        screen_width  / (2 * meters_to_pixels),
+        screen_height / (2 * meters_to_pixels),
+    ))
+    target = center.copy()
+
+    if theta is None:
+        theta = 2 * math.pi * np.random.rand()
+    spawn = center + diff * np.array([math.cos(theta), math.sin(theta)])
+
+    max_a      = drones[0].thruster_force * 2 / drones[0].M
+    d_initial  = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
+    base_bonus = max(400, d_initial * 4)
+
+    oob_center = (spawn + target) / 2
+    oob_radius = d_initial * 1.1 / 2
+
+    scores     = np.zeros(N)
+    hover_time = np.zeros(N)
+    total_dist = np.zeros(N)
+    completed: set[int] = set()
+
+    for drone in drones:
+        drone.reset_state(spawn)
+        drone.waypoint = target.copy()
+
+    time = 0.0
+    completions: list[float] = []
+
+    while time < limit:
+        if not any(d.enabled for d in drones):
+            break
+
+        for ix, drone in enumerate(drones):
+            if not drone.enabled:
+                continue
+
+            drone.handle_input(None, dt)
+            drone.update(dt)
+
+            p, v = drone.pos, drone.v
+            v_mag = math.hypot(v[0], v[1])
+
+            r = target - p
+            d = math.hypot(r[0], r[1])
+            u = r / (d + eps)
+
+            v_par   = float(np.dot(v, u))
+            safe_v  = math.sqrt(2 * max_a * d)
+            v_ratio = v_par / (safe_v + eps)
+
+            # ── v_max parabola (only score during pursuit) ────────────
+            if d >= HOVER_DIST:
+                if v_ratio <= 1:
+                    frame_score = dt * (1 - (v_ratio - 1) ** 2)
+                else:
+                    frame_score = dt * (1 - 16 * (v_ratio - 1) ** 2)
+            else:
+                frame_score = 0.0
+
+            # ── Hover dwell ───────────────────────────────────────────
+            if d < HOVER_DIST and v_mag < HOVER_VEL:
+                hover_time[ix] += dt
+            else:
+                hover_time[ix] = max(hover_time[ix] - dt, 0.0)
+
+            # ── Completion: base_bonus scaled by path efficiency ───────
+            if hover_time[ix] > 0.1 * limit:
+                eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
+                scores[ix] += base_bonus * eff               # path-efficient = higher bonus
+                scores[ix] += base_bonus * (1 - time / limit) # time bonus on top
+                drone.enabled = False
+                completions.append(time)
+                completed.add(ix)
+                continue
+
+            total_dist[ix] += v_mag * dt
+
+            # ── Out of bounds ─────────────────────────────────────────
+            dist_oob = math.hypot(p[0] - oob_center[0], p[1] - oob_center[1])
+            if dist_oob > oob_radius:
+                drone.enabled = False
+                if scores[ix] > 0:
+                    scores[ix] /= 2
+
+            scores[ix] = max(scores[ix] + frame_score, 0.0)
+
+        time += dt
 
     return 0, scores, completions, completed

@@ -140,7 +140,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for score, g in zip(raw_scores, current_gen):
         edges = sum([1 for c in g.connections if c.enabled])
         nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
-        adjusted_scores[ix] = max(0.1, score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 1)
+        adjusted_scores[ix] = max(0.01, score - max(0, edges - 50) * 1 - max(0, nodes - 5) * 0)
         ix += 1
     
     min_score = min(adjusted_scores)
@@ -217,7 +217,6 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     species = temp_species
     species_pop = temp_species_pop
 
-
     # fitness sharing and average fitness per species
     species_fitness = []
     for s in species_pop:
@@ -236,20 +235,24 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         # calculate quota as proportion of total fitness
         quota = int(fitness * poputlation_size / total_fitness)
         quotas.append(quota)
+    print(f'size:      {[len(s) for s in species_pop]}')
+    print(f'survivors: {survivors}')
+    print(f'quotas:    {quotas}')
+    print(f'scores:    {[round(float(s.best_history[-1]), 2) for s in species]}')
 
     # cap quotas
-    max_quota = int(poputlation_size * max(0.35, 1.1 / len(species_pop)))
-    # excess = 0
-    for ix, quota in enumerate(quotas):
-        # excess += max(quota - max_quota, 0)
-        quotas[ix] = min(quota, max_quota)
+    # max_quota = int(poputlation_size * max(0.35, 1.1 / len(species_pop)))
+    # # excess = 0
+    # for ix, quota in enumerate(quotas):
+    #     # excess += max(quota - max_quota, 0)
+    #     quotas[ix] = min(quota, max_quota)
 
-    i = 0
-    while sum(quotas) < poputlation_size:
-        ix = i % len(quotas)
-        if quotas[ix] < max_quota:
-            quotas[ix] += 1
-        i += 1
+    # i = 0
+    # while sum(quotas) < poputlation_size:
+    #     ix = i % len(quotas)
+    #     if quotas[ix] < max_quota:
+    #         quotas[ix] += 1
+    #     i += 1
 
     # cull stats returned to caller
     cull_stats = {
@@ -260,13 +263,18 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # breeding
     next_gen: list[Genome] = []
     # elietism
-    for s in species_pop:
+    actual = [0] * len(quotas)
+    for i, s in enumerate(species_pop):
+        if quotas[i] == 0:
+            continue
         next_gen.append(deepcopy(s[0]))
+        actual[i] += 1
 
     # breed rest of population
     for i, s in enumerate(species_pop):
         species_scores = [genome_scores[g] for g in s]
         for _ in range(quotas[i] - 1):
+            actual[i] += 1
             # choose parents
             parent1, parent2 = random.choices(s, weights=species_scores, k=2)
             if np.random.rand() < 0.01:
@@ -277,5 +285,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             mutate(baby, innovations)
             # add baby
             next_gen.append(baby)
+
+    print(f'babies:    {actual}')
 
     return next_gen, species_pop, species, deaths, cull_stats
