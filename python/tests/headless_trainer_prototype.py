@@ -1,6 +1,6 @@
 from drone_prototype import Ai_Drone
 from scoring_prototype import hover_scorer_headless
-from prototype_stage1 import stage1, pick_direction, adjust_dir_difficulty, format_dir_rates, make_dir_stats, DIR_NAMES
+from prototype_stage1 import stage1, pick_direction, adjust_dir_difficulty, format_dir_rates, make_dir_stats, DIR_NAMES, stage1_vmax_test
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
 from breeding_prototype import breed, STAGNATION_CHANCES
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     try:
         stage = state['stage']
         if stage == 0:
-            limit = 5
+            limit = 50
         else:
             limit = 7
         done = False
@@ -81,7 +81,7 @@ if __name__ == '__main__':
         training_start = time.time()
 
         # ── 50-gen stats buffer for discord ──
-        LOG_INTERVAL = 5
+        LOG_INTERVAL = 20
         SCORE_BINS = [0, 10, 50, 100, 200, 400, 600, 1000]
         log_buf = {
             'max_scores': [],
@@ -133,7 +133,7 @@ if __name__ == '__main__':
                 #     adj_diff *= np.random.rand() * 0.7
                 #     adj_diff = max(adj_diff, 10)
 
-                return_code, scores, completions, completed = stage1(
+                return_code, scores, completions, completed = stage1_vmax_test(
                     drones,
                     config["width"],
                     config["height"],
@@ -226,19 +226,19 @@ if __name__ == '__main__':
             # log training stats to terminal
             delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            print(f"  score    max: {max_score:.2f} | avg: {avg_score:.2f} | rolling: {rolling_average:.2f} | best ever: {best_ever:.2f} | Δ: {delta_sign}{score_delta:.1f}")
+            print(f"  score     max: {max_score:.2f} | avg: {avg_score:.2f} | rolling: {rolling_average:.2f} | best ever: {best_ever:.2f} | Δ: {delta_sign}{score_delta:.1f}")
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
-                print(f"  progress target: {target_score:.0f} ({pct:.1f}%) | improvement: {improvement:.1f} | limit: {limit}s")
+                print(f"  progress  target: {target_score:.0f} ({pct:.1f}%) | improvement: {improvement:.1f} | limit: {limit}s")
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
                 comp_pct = len(completions) / pop_size * 100
-                print(f"  progress complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | improvement: {improvement:.1f}")
+                print(f"  progress  complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | improvement: {improvement:.1f} | limit: {limit}")
                 print(f"  direction {dir_name} | diffs: {format_dir_rates(state['dir_stats'])}")
-            print(f"  species  {species_info}")
-            print(f"  genome   avg connections: {average_connections:.1f} | pop: {pop_size}")
-            print(f"  timing   gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
+            print(f"  species   {species_info}")
+            print(f"  genome    avg connections: {average_connections:.1f} | pop: {pop_size}")
+            print(f"  timing    gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
             # ── accumulate stats into 50-gen buffer ──
             log_buf['max_scores'].append(max_score)
@@ -370,7 +370,7 @@ if __name__ == '__main__':
                     state['species'] = []
                     first = True
                     utils.save(state)
-                if max_score / target_score > .9:
+                elif max_score / target_score > .9:
                     limit += 5
 
             # save progress every 500 gens

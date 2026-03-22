@@ -171,9 +171,9 @@ def stage1(
 
                 # Feathering multiplier (positive scores only, outside brake zone)
                 if frame_score > 0 and d >= BRAKE_ZONE:
-                    thrust_change = (abs(drone.t1_thrust - prev_t1[ix])
-                                   + abs(drone.t2_thrust - prev_t2[ix]))
-                    frame_score *= max(1 - FEATHER_K * thrust_change, 0)
+                    f1 = max(1 - FEATHER_K * abs(drone.t1_thrust - prev_t1[ix]), 0) # thruster 1 feather
+                    f2 = max(1 - FEATHER_K * abs(drone.t2_thrust - prev_t2[ix]), 0) # thruster 2 feather
+                    frame_score *= f1 * f2
             else:
                 # === HOVER TRANSITION ===
                 # v_ratio OFF — smooth transition to proximity reward
@@ -255,8 +255,7 @@ def stage1_vmax_test(
     diff: float = 10,
     theta: float | None = None,
 ):
-    """Stripped-down stage 1: only the v_max parabola + efficiency-weighted completion bonus.
-    No lateral penalty, no feathering, no hover rewards — pure approach signal."""
+    """Stripped-down stage 1: v_max parabola (with feathering) + efficiency-weighted completion bonus."""
     eps = 1e-8
     dt  = 0.016
     N   = len(drones)
@@ -281,6 +280,8 @@ def stage1_vmax_test(
     scores     = np.zeros(N)
     hover_time = np.zeros(N)
     total_dist = np.zeros(N)
+    prev_t1    = np.zeros(N)
+    prev_t2    = np.zeros(N)
     completed: set[int] = set()
 
     for drone in drones:
@@ -313,13 +314,19 @@ def stage1_vmax_test(
             v_ratio = v_par / (safe_v + eps)
 
             # ── v_max parabola (only score during pursuit) ────────────
-            if d >= HOVER_DIST:
-                if v_ratio <= 1:
-                    frame_score = dt * (1 - (v_ratio - 1) ** 2)
-                else:
-                    frame_score = dt * (1 - 16 * (v_ratio - 1) ** 2)
+            # if d >= HOVER_DIST:
+            if v_ratio <= 1:
+                frame_score = dt * (1 - (v_ratio - 1) ** 2)
             else:
-                frame_score = 0.0
+                frame_score = dt * (1 - 16 * (v_ratio - 1) ** 2)
+            # else:
+            #     frame_score = 0.0
+
+            # ── Feathering penalty (smooth thrust = higher score) ─────
+            if frame_score > 0 and d >= BRAKE_ZONE:
+                f1 = max(1 - FEATHER_K * abs(drone.t1_thrust - prev_t1[ix]), 0) # thruster 1 feather
+                f2 = max(1 - FEATHER_K * abs(drone.t2_thrust - prev_t2[ix]), 0) # thruster 2 feather
+                frame_score *= f1 * f2
 
             # ── Hover dwell ───────────────────────────────────────────
             if d < HOVER_DIST and v_mag < HOVER_VEL:
@@ -330,8 +337,8 @@ def stage1_vmax_test(
             # ── Completion: base_bonus scaled by path efficiency ───────
             if hover_time[ix] > 0.1 * limit:
                 eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
-                scores[ix] += base_bonus * eff               # path-efficient = higher bonus
-                scores[ix] += base_bonus * (1 - time / limit) # time bonus on top
+                scores[ix] += base_bonus * eff * (1 - time / limit)              # path-efficient = higher bonus
+                # scores[ix] += base_bonus  # time bonus on top
                 drone.enabled = False
                 completions.append(time)
                 completed.add(ix)
@@ -347,6 +354,8 @@ def stage1_vmax_test(
                     scores[ix] /= 2
 
             scores[ix] = max(scores[ix] + frame_score, 0.0)
+
+            prev_t1[ix], prev_t2[ix] = drone.t1_thrust, drone.t2_thrust
 
         time += dt
 
