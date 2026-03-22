@@ -71,7 +71,7 @@ if __name__ == '__main__':
     try:
         stage = state['stage']
         if stage == 0:
-            limit = 50
+            limit = 5
         else:
             limit = 7
         done = False
@@ -81,7 +81,7 @@ if __name__ == '__main__':
         training_start = time.time()
 
         # ── 50-gen stats buffer for discord ──
-        LOG_INTERVAL = 20
+        LOG_INTERVAL = 50
         SCORE_BINS = [0, 10, 50, 100, 200, 400, 600, 1000]
         log_buf = {
             'max_scores': [],
