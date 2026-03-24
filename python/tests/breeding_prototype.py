@@ -143,10 +143,10 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         excess = max(0, edges - 50) + max(0, nodes - 5) * 3
         adjusted_scores[ix] = score / (1 + 0.005 * excess)
         ix += 1
-    
+
     min_score = min(adjusted_scores)
     shifted_scores = [s - min_score + 1e-6 for s in adjusted_scores]
-    
+
     unshifted_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
     genome_scores = {genome: score for genome, score in zip(current_gen, shifted_scores)}
     raw_genome_scores = genome_scores.copy()
@@ -155,7 +155,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     species, species_pop = speciate(prev_species, threshold, current_gen)
     # filter out emtpty lists
     species = [s for s, pop in zip(species, species_pop) if pop]
-    species_pop = [pop for pop in species_pop if pop] 
+    species_pop = [pop for pop in species_pop if pop]
     # sort and cull species
     for i, s in enumerate(species_pop):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
@@ -238,7 +238,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         quotas.append(quota)
     # print(f'size:      {[len(s) for s in species_pop]}')
     # print(f'survivors: {survivors}')
-    print(f'quotas:    {quotas}')
+    # print(f'quotas:    {quotas}')
     # print(f'scores:    {[round(float(s.best_history[-1]), 2) for s in species]}')
 
     # cap quotas

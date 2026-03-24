@@ -272,7 +272,7 @@ def stage1_vmax_test(
 
     max_a      = drones[0].thruster_force * 2 / drones[0].M
     d_initial  = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
-    base_bonus = max(400, d_initial * 4)
+    base_bonus = d_initial * 4
 
     oob_center = (spawn + target) / 2
     oob_radius = d_initial * 1.1 / 2
@@ -315,10 +315,11 @@ def stage1_vmax_test(
 
             # ── v_max parabola (only score during pursuit) ────────────
             # if d >= HOVER_DIST:
+            # now scales with base bonus
             if v_ratio <= 1:
-                frame_score = dt * (1 - (v_ratio - 1) ** 2)
+                frame_score = dt * (1 - (v_ratio - 1) ** 2) * (base_bonus / 20)
             else:
-                frame_score = dt * (1 - 16 * (v_ratio - 1) ** 2)
+                frame_score = dt * (1 - 16 * (v_ratio - 1) ** 2) * (base_bonus / 20)
             # else:
             #     frame_score = 0.0
 
@@ -337,7 +338,7 @@ def stage1_vmax_test(
             # ── Completion: base_bonus scaled by path efficiency ───────
             if hover_time[ix] > 0.1 * limit:
                 eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
-                scores[ix] += base_bonus * eff * (1 - time / limit)              # path-efficient = higher bonus
+                scores[ix] += base_bonus * eff  # path-efficient = higher bonus
                 # scores[ix] += base_bonus  # time bonus on top
                 drone.enabled = False
                 completions.append(time)

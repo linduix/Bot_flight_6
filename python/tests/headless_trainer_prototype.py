@@ -56,14 +56,15 @@ if __name__ == '__main__':
     # cProfile.run('hover_scorer_headless(drones, config["width"], config["height"], config["meters_to_pixels"], limit=5)')
 
     # setup discord logger
-    load_dotenv()
-    WEBHOOK = os.environ["DISCORD_WEBHOOK"]
-    NAME = os.environ['NAME']
-    logging = os.environ['LOGGING'] == 'ON'
-    discord_logger = utils.DiscordLogger(WEBHOOK, interval=5)
+    # load_dotenv()
+    # logging = os.environ['LOGGING'] == 'ON'
+    logging = False
 
     # webhook test
     if logging:
+        NAME = os.environ['NAME']
+        WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+        discord_logger = utils.DiscordLogger(WEBHOOK, interval=5)
         r = requests.post(WEBHOOK, json={"content": f"{NAME}>> TRAINING INIT"}, timeout=5)
         print("discord test:", r.status_code, r.text[:200])
 
@@ -93,11 +94,23 @@ if __name__ == '__main__':
             'stagnant_killed': 0,
             'killed_genomes': 0,
             'connections': [],      # avg connections each gen
+            'nodes': [],            # avg nodes each gen
             'gen_times': [],        # seconds per gen
             'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),  # cumulative histogram
             'completer_conn': [],   # avg enabled connections for completers each gen
             'non_completer_conn': [],  # avg enabled connections for non-completers each gen
+            'elite_ratios': [],     # best/mean fitness each gen
+            'density_ratios': [],   # mean_nodes/mean_connections each gen
+            'species_densities': [], # species_count/pop_size each gen
+            'stagnant_ratios': [],  # stagnant_species/total_species each gen
+            'disabled_ratios': [],  # disabled_genes/total_genes each gen
+            'score_deltas': [],     # Δ best_fitness each gen
         }
+
+        # threshold stuff
+        spec_target_max = 0.3
+        spec_target_min = 0.05
+
         while not done:
             #create drones
             drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
@@ -163,15 +176,29 @@ if __name__ == '__main__':
             rolling_average = np.average(state['historical_score'][-10:])
             # calculate improvement from roling average change
             improvement = rolling_average - np.average(state['historical_score'][-20:-10]) if len(state['historical_score']) > 20 else 0
-            
-            # get average connections
+
+            # get average connections, nodes, and disabled-gene ratio
             connections = []
+            nodes_counts = []
+            disabled_counts = []
+            total_gene_counts = []
             for g in state['current_gen']:
                 enabled_sum = 0
+                disabled_sum = 0
                 for c in g.connections:
-                    enabled_sum += 1 if c.enabled else 0
+                    if c.enabled:
+                        enabled_sum += 1
+                    else:
+                        disabled_sum += 1
                 connections.append(enabled_sum)
+                nodes_counts.append(len(g.nodes))
+                disabled_counts.append(disabled_sum)
+                total_gene_counts.append(enabled_sum + disabled_sum)
             average_connections = np.average(connections)
+            average_nodes = np.average(nodes_counts)
+            avg_total_genes = np.average(total_gene_counts)
+            avg_disabled = np.average(disabled_counts)
+            disabled_ratio = avg_disabled / avg_total_genes if avg_total_genes > 0 else 0.0
 
             # record best drone
             ix = np.argsort(scores)[-1]
@@ -190,10 +217,12 @@ if __name__ == '__main__':
                 state['current_gen'] = next_gen
                 state['gen'] += 1
                 state['species'] = spec
+                stagnant_count = sum(1 for s in spec if s.stagnation > 0)
             else:
                 species_pop = []
                 deaths = 0
                 cull_stats = {'stagnant_killed': 0, 'killed_genomes': 0}
+                stagnant_count = 0
 
             # breed profiling
             if profile:
@@ -208,6 +237,12 @@ if __name__ == '__main__':
             pop_size = len(scores)
             prev_max = state['historical_score'][-2] if len(state['historical_score']) >= 2 else max_score
             score_delta = max_score - prev_max
+
+            # ratios
+            elite_ratio = max_score / avg_score if avg_score > 0 else float('nan')
+            density_ratio = average_nodes / average_connections if average_connections > 0 else float('nan')
+            species_density = len(species_pop) / pop_size if pop_size > 0 else 0.0
+            stagnant_ratio = stagnant_count / len(species_pop) if species_pop else 0.0
             total_elapsed = time.time() - training_start
             gen_rate = 60 / elapsed if elapsed > 0 else 0
             # format total elapsed
@@ -236,15 +271,23 @@ if __name__ == '__main__':
                 comp_pct = len(completions) / pop_size * 100
                 print(f"  progress  complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | improvement: {improvement:.1f} | limit: {limit}")
                 print(f"  direction {dir_name} | diffs: {format_dir_rates(state['dir_stats'])}")
-            print(f"  species   {species_info}")
-            print(f"  genome    avg connections: {average_connections:.1f} | pop: {pop_size}")
+            print(f"  species   {species_info} | target species: {config["population"] * spec_target_min: .0f} -{config["population"] * spec_target_max: .0f}")
+            print(f"  genome    avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
+            print(f"  ratios    elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | stagnant: {stagnant_ratio:.2f} | Δ/gen: {delta_sign}{score_delta:.1f}")
             print(f"  timing    gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
             # ── accumulate stats into 50-gen buffer ──
             log_buf['max_scores'].append(max_score)
             log_buf['avg_scores'].append(avg_score)
             log_buf['connections'].append(average_connections)
+            log_buf['nodes'].append(average_nodes)
             log_buf['gen_times'].append(elapsed)
+            log_buf['elite_ratios'].append(elite_ratio)
+            log_buf['density_ratios'].append(density_ratio)
+            log_buf['species_densities'].append(species_density)
+            log_buf['stagnant_ratios'].append(stagnant_ratio)
+            log_buf['disabled_ratios'].append(disabled_ratio)
+            log_buf['score_deltas'].append(score_delta)
             log_buf['stagnant_killed'] += cull_stats['stagnant_killed']
             log_buf['killed_genomes'] += cull_stats['killed_genomes']
             # score distribution histogram
@@ -318,13 +361,24 @@ if __name__ == '__main__':
 
                 avg_conn = np.average(log_buf['connections'])
                 conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0
+                avg_nodes_buf = np.average(log_buf['nodes'])
                 avg_gt = np.average(log_buf['gen_times'])
+
+                # ratio aggregates over window
+                buf_elite    = np.nanmean(log_buf['elite_ratios'])
+                buf_density  = np.nanmean(log_buf['density_ratios'])
+                buf_spec_den = np.mean(log_buf['species_densities'])
+                buf_stagnant = np.mean(log_buf['stagnant_ratios'])
+                buf_disabled = np.mean(log_buf['disabled_ratios'])
+                buf_delta_gen = np.mean(log_buf['score_deltas'])
+
                 lines += [
-                    f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  pop: {pop_size}",
+                    f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  avg_nodes: {avg_nodes_buf:.1f}  pop: {pop_size}",
+                    f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  stagnant: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}  Δ/gen: {buf_delta_gen:+.1f}",
                     f"Timing   avg: {avg_gt:.2f}s/gen  rate: {60/avg_gt:.1f}/min  elapsed: {elapsed_fmt}",
                     f"```",
                 ]
-                
+
                 discord_logger.log("\n".join(lines))
                 first = False
 
@@ -339,19 +393,27 @@ if __name__ == '__main__':
                     'stagnant_killed': 0,
                     'killed_genomes': 0,
                     'connections': [],
+                    'nodes': [],
                     'gen_times': [],
                     'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),
                     'completer_conn': [],
                     'non_completer_conn': [],
+                    'elite_ratios': [],
+                    'density_ratios': [],
+                    'species_densities': [],
+                    'stagnant_ratios': [],
+                    'disabled_ratios': [],
+                    'score_deltas': [],
                 }
 
             # adjust species thresholds
-            if len(species_pop) < 10:
-                diff = abs(len(species_pop) - (10+15)/2)
-                state["threshold"] *= np.sqrt(max(1 - (diff * 0.01), 0.1))
-            elif len(species_pop) > 15:
-                diff = abs(len(species_pop) - (10+15)/2)
-                state["threshold"] *= np.sqrt(1 + (diff * 0.01))
+            diversity_ratio = len(species_pop)/config['population']
+            if diversity_ratio < spec_target_min:
+                diff = abs(diversity_ratio - (spec_target_min+spec_target_max)/2)
+                state["threshold"] *= max(1 - (diff * 0.5), 0.1)
+            elif diversity_ratio > spec_target_max:
+                diff = abs(diversity_ratio - (spec_target_min+spec_target_max)/2)
+                state["threshold"] *= 1 + (diff * 0.5)
 
             # adjust per-direction difficulty
             if stage == 1:
@@ -384,5 +446,5 @@ if __name__ == '__main__':
         if logging:
             print('closing logger...')
             discord_logger.log(f'{NAME}>> TRAINING TERM')
-        discord_logger.close()
+            discord_logger.close()
         utils.save(state)
