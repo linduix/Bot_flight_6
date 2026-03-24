@@ -1,6 +1,5 @@
-from drone_prototype import Ai_Drone
 from scoring_prototype import hover_scorer_headless
-from prototype_stage1 import stage1, pick_direction, adjust_dir_difficulty, format_dir_rates, make_dir_stats, DIR_NAMES, stage1_vmax_test
+from prototype_stage1 import stage1_vmax_test
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
 from breeding_prototype import breed, STAGNATION_CHANCES
@@ -91,16 +90,12 @@ if __name__ == '__main__':
             'avg_scores': [],
             'comp_counts': [],      # number of completions each gen
             'comp_times': [],       # individual completion times (flat)
-            'dir_counts': {},       # direction -> number of gens tested
-            'dir_comps': {},        # direction -> total completions
             'stagnant_killed': 0,
             'killed_genomes': 0,
             'connections': [],      # avg connections each gen
             'nodes': [],            # avg nodes each gen
             'gen_times': [],        # seconds per gen
             'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),  # cumulative histogram
-            'completer_conn': [],   # avg enabled connections for completers each gen
-            'non_completer_conn': [],  # avg enabled connections for non-completers each gen
             'elite_ratios': [],     # best/mean fitness each gen
             'density_ratios': [],   # mean_nodes/mean_connections each gen
             'species_densities': [], # species_count/pop_size each gen
@@ -114,23 +109,18 @@ if __name__ == '__main__':
         spec_target_min = 0.05
 
         while not done:
-            #create drones
-            drones: list[Ai_Drone] = [Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g) for g in state['current_gen']]
-
             # time start
             start = time.time()
 
             # Difficulty
             state.setdefault('difficulty', 15)
-            difficulty = state['difficulty']
-            adj_diff = difficulty
 
             return_code = 1
             if stage == 0:
                 # run scorer
                 completions = []
                 return_code, scores, iterations = hover_scorer_headless(
-                    drones,
+                    state['current_gen'],
                     config["width"],
                     config["height"],
                     config["meters_to_pixels"],
@@ -139,23 +129,13 @@ if __name__ == '__main__':
             else:
                 iterations = 0
 
-                # Directional balance — pick direction, get per-direction difficulty
-                state.setdefault('dir_stats', make_dir_stats(state.get('difficulty', 15)))
-                dir_name, dir_theta, adj_diff = pick_direction(state['dir_stats'])
-
-                # # Occasionally easier difficulty so it doesn't forget earlier training
-                # if np.random.rand() < .15:
-                #     adj_diff *= np.random.rand() * 0.7
-                #     adj_diff = max(adj_diff, 10)
-
-                return_code, scores, completions, completed = stage1_vmax_test(
-                    drones,
+                return_code, scores, completions, avg_completions = stage1_vmax_test(
+                    state['current_gen'],
                     config["width"],
                     config["height"],
                     config["meters_to_pixels"],
                     limit=limit,
-                    diff=adj_diff,
-                    theta=dir_theta,
+                    diff=state['difficulty'],
                 )
 
             # time end
@@ -283,9 +263,8 @@ if __name__ == '__main__':
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
-                comp_pct = len(completions) / pop_size * 100
-                print(f"  progress  complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | limit: {limit}")
-                print(f"  direction {dir_name} | diffs: {format_dir_rates(state['dir_stats'])}")
+                comp_pct = avg_completions / pop_size * 100
+                print(f"  progress  complete: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {state['difficulty']:.2f}m | limit: {limit}")
             pop = config['population']
             print(f"  species   {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
             print(f"  genome    avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
@@ -308,18 +287,10 @@ if __name__ == '__main__':
             log_buf['killed_genomes'] += cull_stats['killed_genomes']
             # score distribution histogram
             log_buf['score_hist'] += np.histogram(scores, bins=SCORE_BINS)[0]
-            # completer vs non-completer complexity
             if stage == 1:
                 assert isinstance(completions, list)
                 log_buf['comp_counts'].append(len(completions))
                 log_buf['comp_times'].extend(completions)
-                log_buf['dir_counts'][dir_name] = log_buf['dir_counts'].get(dir_name, 0) + 1
-                log_buf['dir_comps'][dir_name] = log_buf['dir_comps'].get(dir_name, 0) + len(completions)
-                non_completed = [i for i in range(len(drones)) if i not in completed]
-                if completed:
-                    log_buf['completer_conn'].append(np.mean([len([c for c in drones[i].brain.genome.connections if c.enabled]) for i in completed]))
-                if non_completed:
-                    log_buf['non_completer_conn'].append(np.mean([len([c for c in drones[i].brain.genome.connections if c.enabled]) for i in non_completed]))
 
             # log to discord
             if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
@@ -345,17 +316,7 @@ if __name__ == '__main__':
                     avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
                     comp_rate = avg_comp / pop_size * 100
 
-                    lines.append(f"Complet  avg: {avg_comp:.0f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp}  avg_time: {avg_ct:.2f}s")
-
-                    # per-direction summary
-                    dir_parts = []
-                    for d in DIR_NAMES:
-                        cnt = log_buf['dir_counts'].get(d, 0)
-                        if cnt > 0:
-                            avg_c = log_buf['dir_comps'][d] / cnt
-                            dir_parts.append(f"{d}:{cnt}x")
-                    lines.append(f"Dirs     {' '.join(dir_parts)}")
-                    lines.append(f"Diffs    {format_dir_rates(state['dir_stats'])}")
+                    lines.append(f"Complet  avg: {avg_comp:.0f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp}  avg_time: {avg_ct:.2f}s  diff: {state['difficulty']:.1f}m")
 
                 # species & stagnation over window
                 stag_info = f"now: {len(species_pop)}"
@@ -369,12 +330,6 @@ if __name__ == '__main__':
                 bin_labels = [f"{SCORE_BINS[i]}-{SCORE_BINS[i+1]}" for i in range(len(SCORE_BINS)-1)]
                 dist_parts = [f"{lbl}: {cnt}" for lbl, cnt in zip(bin_labels, hist)]
                 lines.append(f"ScoreDis {' | '.join(dist_parts)}")
-
-                # completer vs non-completer complexity
-                if stage == 1:
-                    avg_cc = np.mean(log_buf['completer_conn']) if log_buf['completer_conn'] else 0
-                    avg_nc = np.mean(log_buf['non_completer_conn']) if log_buf['non_completer_conn'] else 0
-                    lines.append(f"Complex  completers: {avg_cc:.1f}  non-completers: {avg_nc:.1f}")
 
                 avg_conn = np.average(log_buf['connections'])
                 conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0
@@ -405,16 +360,12 @@ if __name__ == '__main__':
                     'avg_scores': [],
                     'comp_counts': [],
                     'comp_times': [],
-                    'dir_counts': {},
-                    'dir_comps': {},
                     'stagnant_killed': 0,
                     'killed_genomes': 0,
                     'connections': [],
                     'nodes': [],
                     'gen_times': [],
                     'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),
-                    'completer_conn': [],
-                    'non_completer_conn': [],
                     'elite_ratios': [],
                     'density_ratios': [],
                     'species_densities': [],
@@ -432,10 +383,15 @@ if __name__ == '__main__':
                 diff = abs(diversity_ratio - (spec_target_min+spec_target_max)/2)
                 state["threshold"] *= 1 + (diff * 0.5)
 
-            # adjust per-direction difficulty
+            # adjust unified difficulty
             if stage == 1:
                 assert isinstance(completions, list)
-                adjust_dir_difficulty(state['dir_stats'], dir_name, len(completions), config['population'])
+                target_rate = 0.1
+                rate = avg_completions / config['population']
+                error = rate - target_rate
+                if abs(error) > 0.02:
+                    state['difficulty'] *= error + 1
+                    state['difficulty'] = max(state['difficulty'], 10)
 
             # progress hover stage
             if stage == 0:

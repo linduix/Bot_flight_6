@@ -247,18 +247,20 @@ def stage1(
 
 
 def stage1_vmax_test(
-    drones: list[Ai_Drone],
+    genomes,
     screen_width: int,
     screen_height: int,
     meters_to_pixels: float,
     limit: float = 10,
     diff: float = 10,
-    theta: float | None = None,
 ):
-    """Stripped-down stage 1: v_max parabola (with feathering) + efficiency-weighted completion bonus."""
+    """Stage 1 vmax test: runs all 8 compass directions simultaneously.
+    Each genome gets 8 drone instances (one per direction). Scores are averaged."""
     eps = 1e-8
     dt  = 0.016
-    N   = len(drones)
+    N   = len(genomes)
+    D   = len(DIR_NAMES)
+    total = D * N
 
     center = np.array((
         screen_width  / (2 * meters_to_pixels),
@@ -266,31 +268,50 @@ def stage1_vmax_test(
     ))
     target = center.copy()
 
-    if theta is None:
-        theta = 2 * math.pi * np.random.rand()
-    spawn = center + diff * np.array([math.cos(theta), math.sin(theta)])
+    # ── Per-direction setup ────────────────────────────────────────────
+    spawns       = []
+    d_initials   = []
+    base_bonuses = []
+    oob_centers  = []
+    oob_radii    = []
 
-    max_a      = drones[0].thruster_force * 2 / drones[0].M
-    d_initial  = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
-    base_bonus = d_initial * 4
+    for d_idx in range(D):
+        theta = DIR_ANGLES[d_idx]
+        spawn = center + diff * np.array([math.cos(theta), math.sin(theta)])
+        d_initial = math.hypot(target[0] - spawn[0], target[1] - spawn[1])
+        spawns.append(spawn)
+        d_initials.append(d_initial)
+        base_bonuses.append(d_initial * 4)
+        oob_centers.append((spawn + target) / 2)
+        oob_radii.append(d_initial * 1.5 / 2)
 
-    oob_center = (spawn + target) / 2
-    oob_radius = d_initial * 1.5 / 2
+    # ── Create 8*N drones ──────────────────────────────────────────────
+    drones = []
+    for d_idx in range(D):
+        for genome in genomes:
+            drones.append(Ai_Drone((0, 0), meters_to_pixels, screen_height, genome))
 
-    scores     = np.zeros(N)
-    hover_time = np.zeros(N)
-    total_dist = np.zeros(N)
-    prev_t1    = np.zeros(N)
-    prev_t2    = np.zeros(N)
-    completed: set[int] = set()
+    # First drone for physics constants
+    max_a = drones[0].thruster_force * 2 / drones[0].M
 
-    for drone in drones:
-        drone.reset_state(spawn)
+    # ── Per-drone state ────────────────────────────────────────────────
+    scores     = np.zeros(total)
+    hover_time = np.zeros(total)
+    total_dist = np.zeros(total)
+    prev_t1    = np.zeros(total)
+    prev_t2    = np.zeros(total)
+    completed: set[int] = set()  # flat indices
+
+    # Init drones to their direction's spawn
+    for ix, drone in enumerate(drones):
+        d_idx = ix // N
+        drone.reset_state(spawns[d_idx])
         drone.waypoint = target.copy()
 
     time = 0.0
     completions: list[float] = []
 
+    # ── Simulation loop ────────────────────────────────────────────────
     while time < limit:
         if not any(d.enabled for d in drones):
             break
@@ -298,6 +319,10 @@ def stage1_vmax_test(
         for ix, drone in enumerate(drones):
             if not drone.enabled:
                 continue
+
+            d_idx = ix // N
+            d_initial  = d_initials[d_idx]
+            base_bonus = base_bonuses[d_idx]
 
             drone.handle_input(None, dt)
             drone.update(dt)
@@ -313,33 +338,28 @@ def stage1_vmax_test(
             safe_v  = math.sqrt(2 * max_a * d)
             v_ratio = v_par / (safe_v + eps)
 
-            # ── v_max parabola (only score during pursuit) ────────────
-            # if d >= HOVER_DIST:
-            # now scales with base bonus
+            # ── v_max parabola ────────────────────────────────────
             if v_ratio <= 1:
                 frame_score = dt * (1 - (v_ratio - 1) ** 2) * (base_bonus / 20)
             else:
                 frame_score = dt * (1 - 16 * (v_ratio - 1) ** 2) * (base_bonus / 20)
-            # else:
-            #     frame_score = 0.0
 
-            # ── Feathering penalty (smooth thrust = higher score) ─────
+            # ── Feathering penalty ────────────────────────────────
             if frame_score > 0 and d >= BRAKE_ZONE:
-                f1 = max(1 - FEATHER_K * abs(drone.t1_thrust - prev_t1[ix]), 0) # thruster 1 feather
-                f2 = max(1 - FEATHER_K * abs(drone.t2_thrust - prev_t2[ix]), 0) # thruster 2 feather
+                f1 = max(1 - FEATHER_K * abs(drone.t1_thrust - prev_t1[ix]), 0)
+                f2 = max(1 - FEATHER_K * abs(drone.t2_thrust - prev_t2[ix]), 0)
                 frame_score *= f1 * f2
 
-            # ── Hover dwell ───────────────────────────────────────────
+            # ── Hover dwell ───────────────────────────────────────
             if d < HOVER_DIST and v_mag < HOVER_VEL:
                 hover_time[ix] += dt
             else:
                 hover_time[ix] = max(hover_time[ix] - dt, 0.0)
 
-            # ── Completion: base_bonus scaled by path efficiency ───────
+            # ── Completion ────────────────────────────────────────
             if hover_time[ix] > 0.1 * limit:
                 eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
-                scores[ix] += base_bonus * eff  # path-efficient = higher bonus
-                # scores[ix] += base_bonus  # time bonus on top
+                scores[ix] += base_bonus * eff
                 drone.enabled = False
                 completions.append(time)
                 completed.add(ix)
@@ -347,9 +367,9 @@ def stage1_vmax_test(
 
             total_dist[ix] += v_mag * dt
 
-            # ── Out of bounds ─────────────────────────────────────────
-            dist_oob = math.hypot(p[0] - oob_center[0], p[1] - oob_center[1])
-            if dist_oob > oob_radius:
+            # ── Out of bounds ─────────────────────────────────────
+            dist_oob = math.hypot(p[0] - oob_centers[d_idx][0], p[1] - oob_centers[d_idx][1])
+            if dist_oob > oob_radii[d_idx]:
                 drone.enabled = False
                 if scores[ix] > 0:
                     scores[ix] /= 2
@@ -360,4 +380,13 @@ def stage1_vmax_test(
 
         time += dt
 
-    return 0, scores, completions, completed
+    # ── Average scores across 8 directions per genome ──────────────────
+    genome_scores = np.zeros(N)
+    for d_idx in range(D):
+        genome_scores += scores[d_idx * N : (d_idx + 1) * N]
+    genome_scores /= D
+
+    # Average completion count: total completions / 8 directions
+    avg_completions = len(completed) / D
+
+    return 0, genome_scores, completions, avg_completions
