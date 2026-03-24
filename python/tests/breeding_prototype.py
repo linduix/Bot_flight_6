@@ -3,8 +3,8 @@ from genome_prototype import Genome, ConnectionGene, NodeGene, NodeType
 import numpy as np
 from copy import copy, deepcopy
 import random
-STAGNATION_LIMIT = 15
-STAGNATION_CHANCES = 1          # lives before death (0 = instant kill at limit)
+STAGNATION_LIMIT = 25
+STAGNATION_CHANCES = 2          # lives before death (0 = instant kill at limit)
 PROTECTION_WINDOW = 10          # avg of last N best-genome scores for protection
 
 class Species:
@@ -13,7 +13,8 @@ class Species:
         self.stagnation = 0
         self.best_score = -np.inf
         self.chances = STAGNATION_CHANCES
-        self.best_history: list[float] = []   # best genome score per gen
+        self.best_history: list[float] = []   # best genome score per gen (sliding window)
+        self.age: int = 0                      # gens this species has survived
 
 def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) -> Genome:
     # set parents
@@ -140,7 +141,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     for score, g in zip(raw_scores, current_gen):
         edges = sum([1 for c in g.connections if c.enabled])
         nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
-        excess = max(0, edges - 50) + max(0, nodes - 5) * 3
+        excess = max(0, edges - 50) + max(0, nodes - 13) * 3
         adjusted_scores[ix] = score / (1 + 0.005 * excess)
         ix += 1
 
@@ -174,6 +175,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         s.best_history.append(current_best)
         if len(s.best_history) > PROTECTION_WINDOW:
             s.best_history.pop(0)
+        s.age += 1
 
         for g in species_pop[i]:
             score = unshifted_scores[g]

@@ -31,6 +31,8 @@ if __name__ == '__main__':
                 s.best_history = []
             if not hasattr(s, 'chances'):
                 s.chances = STAGNATION_CHANCES
+            if not hasattr(s, 'age'):
+                s.age = len(s.best_history)  # best guess from existing data
     else:
         print('created raw gen')
         # create the training state
@@ -57,8 +59,7 @@ if __name__ == '__main__':
 
     # setup discord logger
     # load_dotenv()
-    # logging = os.environ['LOGGING'] == 'ON'
-    logging = False
+    logging = os.environ.get('LOGGING', 'OFF') == 'ON'
 
     # webhook test
     if logging:
@@ -79,6 +80,7 @@ if __name__ == '__main__':
         profile = False
         first = True
         best_ever = max(state['historical_score']) if state.get('historical_score') else 0
+        plateau_counter = 0  # gens since global best was improved
         training_start = time.time()
 
         # ── 50-gen stats buffer for discord ──
@@ -232,7 +234,11 @@ if __name__ == '__main__':
                 profile = False
 
             # compute stats for logging
-            best_ever = max(best_ever, max_score)
+            if max_score > best_ever:
+                best_ever = max_score
+                plateau_counter = 0
+            else:
+                plateau_counter += 1
             avg_score = np.average(scores)
             pop_size = len(scores)
             prev_max = state['historical_score'][-2] if len(state['historical_score']) >= 2 else max_score
@@ -258,22 +264,32 @@ if __name__ == '__main__':
             if cull_stats['stagnant_killed'] > 0:
                 species_info += f" | stagnant killed: {cull_stats['stagnant_killed']} ({cull_stats['killed_genomes']} genomes removed)"
 
+            # per-species summary
+            if species_pop:
+                largest_species = max(len(sp) for sp in species_pop)
+                top_species_fit = max(s.best_history[-1] for s in state['species'] if s.best_history) if state['species'] else 0
+                oldest_species = max(s.age for s in state['species']) if state['species'] else 0
+                most_stagnant = max(s.stagnation for s in state['species']) if state['species'] else 0
+            else:
+                largest_species = top_species_fit = oldest_species = most_stagnant = 0
+
             # log training stats to terminal
             delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            print(f"  score     max: {max_score:.2f} | avg: {avg_score:.2f} | rolling: {rolling_average:.2f} | best ever: {best_ever:.2f} | Δ: {delta_sign}{score_delta:.1f}")
+            print(f"  score     max: {max_score:.2f} | avg: {avg_score:.2f} | rolling: {rolling_average:.2f} | best ever: {best_ever:.2f} | Δ: {delta_sign}{score_delta:.1f} | plateau: {plateau_counter}")
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
-                print(f"  progress  target: {target_score:.0f} ({pct:.1f}%) | improvement: {improvement:.1f} | limit: {limit}s")
+                print(f"  progress  target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
                 comp_pct = len(completions) / pop_size * 100
-                print(f"  progress  complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | improvement: {improvement:.1f} | limit: {limit}")
+                print(f"  progress  complete: {len(completions)}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {adj_diff:.2f}m | limit: {limit}")
                 print(f"  direction {dir_name} | diffs: {format_dir_rates(state['dir_stats'])}")
-            print(f"  species   {species_info} | target species: {config["population"] * spec_target_min: .0f} -{config["population"] * spec_target_max: .0f}")
+            pop = config['population']
+            print(f"  species   {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
             print(f"  genome    avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
-            print(f"  ratios    elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | stagnant: {stagnant_ratio:.2f} | Δ/gen: {delta_sign}{score_delta:.1f}")
+            print(f"  ratios    elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | stagnant: {stagnant_ratio:.2f}")
             print(f"  timing    gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
             # ── accumulate stats into 50-gen buffer ──
@@ -318,7 +334,7 @@ if __name__ == '__main__':
                     f"**{NAME} | S{stage} Gen {state['gen']}** ({n} gens)",
                     f"```",
                     f"Score    peak: {buf_max:.0f}  low: {buf_min:.0f}  avg_best: {buf_avg_max:.0f}  avg_pop: {buf_avg_avg:.1f}",
-                    f"         rolling: {rolling_average:.2f}  best_ever: {best_ever:.2f}",
+                    f"         rolling: {rolling_average:.2f}  best_ever: {best_ever:.2f}  plateau: {plateau_counter}",
                 ]
                 if stage == 0:
                     lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
@@ -346,6 +362,7 @@ if __name__ == '__main__':
                 if log_buf['stagnant_killed'] > 0:
                     stag_info += f"  stag_killed: {log_buf['stagnant_killed']} ({log_buf['killed_genomes']} genomes)"
                 lines.append(f"Species  {stag_info}")
+                lines.append(f"         largest: {largest_species}  top_fit: {top_species_fit:.1f}  oldest: {oldest_species}  most_stag: {most_stagnant}")
 
                 # score distribution
                 hist = log_buf['score_hist']
@@ -429,6 +446,7 @@ if __name__ == '__main__':
                     limit = 7
                     state['historical_score'] = []
                     best_ever = 0
+                    plateau_counter = 0
                     state['species'] = []
                     first = True
                     utils.save(state)

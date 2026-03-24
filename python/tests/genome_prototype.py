@@ -41,10 +41,14 @@ class Genome:
         return cls(connections=[], nodes=nodes)
 
     def base_connections(self, innovations):
-        for a in range(9):
-            for b in range(9, 13):
-                innovation = innovations.resolve((a, b))
-                self.connections.append(create_connection(innovation, (a, b)))
+        # for a in range(9):
+        #     for b in range(9, 13):
+        #         innovation = innovations.resolve((a, b))
+        #         self.connections.append(create_connection(innovation, (a, b)))
+        a = int(np.random.randint(9))
+        b = int(np.random.randint(9, 13))
+        innovation = innovations.resolve((a, b))
+        self.connections.append(create_connection(innovation, (a, b)))
 
 def create_connection(innovation, pair, weight=None):
     return ConnectionGene(innovation=innovation,

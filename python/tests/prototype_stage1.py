@@ -52,7 +52,7 @@ def adjust_dir_difficulty(dir_stats: dict, dir_name: str, completions: int, pop:
     rate = completions / pop
     error = rate - target_rate
     if abs(error) > 0.02:
-        s['difficulty'] *= np.sqrt(error + 1)
+        s['difficulty'] *= error + 1
         s['difficulty'] = max(s['difficulty'], 10)
 
 
@@ -105,7 +105,7 @@ def stage1(
 
     # Out-of-bounds: circle centered on midpoint of spawn↔target
     oob_center = (spawn + target) / 2
-    oob_radius = d_initial * 1.1 / 2
+    oob_radius = d_initial * 1.5 / 2
 
     # Hover transition: parabola peak value at boundary (v_ratio=1 → score=1.0)
     HOVER_BOUNDARY_SCORE = 1.0
@@ -275,7 +275,7 @@ def stage1_vmax_test(
     base_bonus = d_initial * 4
 
     oob_center = (spawn + target) / 2
-    oob_radius = d_initial * 1.1 / 2
+    oob_radius = d_initial * 1.5 / 2
 
     scores     = np.zeros(N)
     hover_time = np.zeros(N)
