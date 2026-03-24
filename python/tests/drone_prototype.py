@@ -75,7 +75,7 @@ class Particle:
         return int(self.starting_a * (self.lifetime / self.max_lifetime))
 
 class Drone:
-    def __init__(self, pos, meters_to_pixels, surface_height):
+    def __init__(self, pos, meters_to_pixels, surface_height, headless=False):
         # set blank state
         self.reset_state(pos)
 
@@ -97,8 +97,12 @@ class Drone:
         self.particle_count = 3
 
         # surfaces
-        self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
-        self.thruster = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (175, 175, 175), self.mtp)
+        if headless:
+            self.body_surf = None
+            self.thruster = None
+        else:
+            self.body_surf = create_drone(self.size[0], self.size[1], self.mtp)
+            self.thruster = create_thruster(self.size[1] * 2, self.size[1] * 2.2, (175, 175, 175), self.mtp)
 
     def reset_state(self, pos):
         # state
@@ -234,8 +238,8 @@ class Drone:
             self.particles.append(Particle(thruster_pos.copy(), vel, lifetime=0.25, starting_a=start_a))
 
 class Ai_Drone(Drone):
-    def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome):
-        super().__init__(pos, meters_to_pixels, surface_height)
+    def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome, headless=False):
+        super().__init__(pos, meters_to_pixels, surface_height, headless=headless)
 
         self.brain = NeatNN(genome)
         self.waypoint: np.ndarray = np.array(pos, dtype=float)

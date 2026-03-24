@@ -111,7 +111,7 @@ def hover_scorer(drones: list[Ai_Drone], screen_width, screen_height, meters_to_
     return return_code, scores, frame_count
 
 def hover_scorer_headless(genomes, screen_width, screen_height, meters_to_pixels, limit=10):
-    drones = [Ai_Drone((0, 0), meters_to_pixels, screen_height, g) for g in genomes]
+    drones = [Ai_Drone((0, 0), meters_to_pixels, screen_height, g, headless=True) for g in genomes]
 
     center = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
     R = math.hypot(screen_width, screen_height) / (2 * meters_to_pixels) # diagonal length

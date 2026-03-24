@@ -289,7 +289,7 @@ def stage1_vmax_test(
     drones = []
     for d_idx in range(D):
         for genome in genomes:
-            drones.append(Ai_Drone((0, 0), meters_to_pixels, screen_height, genome))
+            drones.append(Ai_Drone((0, 0), meters_to_pixels, screen_height, genome, headless=True))
 
     # First drone for physics constants
     max_a = drones[0].thruster_force * 2 / drones[0].M

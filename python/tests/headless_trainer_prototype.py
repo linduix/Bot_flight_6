@@ -1,3 +1,5 @@
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 from scoring_prototype import hover_scorer_headless
 from prototype_stage1 import stage1_vmax_test
 from mutation_prototype import Innovations, add_connection
@@ -6,11 +8,12 @@ from breeding_prototype import breed, STAGNATION_CHANCES
 from dotenv import load_dotenv
 import util_prototype as utils
 import numpy as np
+import multiprocessing as mp
 import cProfile
 import time
 import pstats
+import math
 import io
-import os
 import requests
 
 config = {
@@ -19,6 +22,10 @@ config = {
     "height": 600,
     "meters_to_pixels": 15
 }
+
+import signal
+def _pool_init():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)  # workers ignore Ctrl+C
 
 if __name__ == '__main__':
     # load saved state
@@ -68,6 +75,16 @@ if __name__ == '__main__':
         r = requests.post(WEBHOOK, json={"content": f"{NAME}>> TRAINING INIT"}, timeout=5)
         print("discord test:", r.status_code, r.text[:200])
 
+    # multiprocessing pool
+    num_workers = max(1, os.cpu_count())
+    use_mp = num_workers > 1
+    if use_mp:
+        pool = mp.Pool(processes=num_workers, initializer=_pool_init)
+        print(f'started pool with {num_workers} workers')
+    else:
+        pool = None
+        print('single CPU detected, running without multiprocessing')
+
     print('training starting...')
     try:
         stage = state['stage']
@@ -116,27 +133,49 @@ if __name__ == '__main__':
             state.setdefault('difficulty', 15)
 
             return_code = 1
+            genomes = state['current_gen']
+
             if stage == 0:
-                # run scorer
-                completions = []
-                return_code, scores, iterations = hover_scorer_headless(
-                    state['current_gen'],
-                    config["width"],
-                    config["height"],
-                    config["meters_to_pixels"],
-                    limit=limit
-                )
+                if use_mp:
+                    # chunked parallel scoring
+                    N = len(genomes)
+                    chunk_size = math.ceil(N / num_workers)
+                    chunks = [genomes[i:i+chunk_size] for i in range(0, N, chunk_size)]
+                    completions = []
+                    results = pool.starmap(hover_scorer_headless, [
+                        (chunk, config["width"], config["height"], config["meters_to_pixels"], limit)
+                        for chunk in chunks
+                    ])
+                    return_code = max(r[0] for r in results)
+                    scores = np.concatenate([r[1] for r in results])
+                    iterations = results[0][2]
+                else:
+                    completions = []
+                    return_code, scores, iterations = hover_scorer_headless(
+                        genomes, config["width"], config["height"],
+                        config["meters_to_pixels"], limit=limit
+                    )
             else:
                 iterations = 0
-
-                return_code, scores, completions, avg_completions = stage1_vmax_test(
-                    state['current_gen'],
-                    config["width"],
-                    config["height"],
-                    config["meters_to_pixels"],
-                    limit=limit,
-                    diff=state['difficulty'],
-                )
+                if use_mp:
+                    N = len(genomes)
+                    chunk_size = math.ceil(N / num_workers)
+                    chunks = [genomes[i:i+chunk_size] for i in range(0, N, chunk_size)]
+                    results = pool.starmap(stage1_vmax_test, [
+                        (chunk, config["width"], config["height"], config["meters_to_pixels"], limit, state['difficulty'])
+                        for chunk in chunks
+                    ])
+                    return_code = max(r[0] for r in results)
+                    scores = np.concatenate([r[1] for r in results])
+                    completions = []
+                    for r in results:
+                        completions.extend(r[2])
+                    avg_completions = sum(r[3] for r in results)
+                else:
+                    return_code, scores, completions, avg_completions = stage1_vmax_test(
+                        genomes, config["width"], config["height"],
+                        config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                    )
 
             # time end
             elapsed = time.time() - start
@@ -416,6 +455,9 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print('Keyboard Interrupt')
     finally:
+        if pool is not None:
+            pool.terminate()
+            pool.join()
         print('---------------------------')
         if logging:
             print('closing logger...')
