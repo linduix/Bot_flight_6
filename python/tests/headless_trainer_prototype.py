@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
     # setup discord logger
     load_dotenv()
-    logging = os.environ['LOGGING'] == 'ON'
+    logging = os.environ.get('LOGGING', 'OFF') == 'ON'
 
     # webhook test
     if logging:
@@ -282,7 +282,7 @@ if __name__ == '__main__':
             # species line
             species_info = f"count: {len(species_pop)}"
             if cull_stats['stagnant_killed'] > 0:
-                species_info += f" | stagnant killed: {cull_stats['stagnant_killed']} ({cull_stats['killed_genomes']} genomes removed)"
+                species_info += f" | stagnant killed: {cull_stats['stagnant_killed']}"
 
             # per-species summary
             if species_pop:
@@ -345,7 +345,7 @@ if __name__ == '__main__':
                     f"**{NAME} | S{stage} Gen {state['gen']}** ({n} gens)",
                     f"```",
                     f"Score    peak: {buf_max:.0f}  low: {buf_min:.0f}  avg_best: {buf_avg_max:.0f}  avg_pop: {buf_avg_avg:.1f}",
-                    f"         rolling: {rolling_average:.2f}  best_ever: {best_ever:.2f}  plateau: {plateau_counter}",
+                    f"         best_ever: {best_ever:.2f}  plateau: {plateau_counter}",
                 ]
                 if stage == 0:
                     lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
