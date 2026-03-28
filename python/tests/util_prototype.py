@@ -10,10 +10,12 @@ import pickle
 import queue
 import time
 
-save_path = Path(__file__).parent.parent.parent / "data" / "checkpoints" / "prototype_save.pkl"
-def save(state: dict):
-    with open(save_path, 'wb') as f:
-        print('saving file')
+checkpoint_dir = Path(__file__).parent.parent.parent / "data" / "checkpoints"
+save_path = checkpoint_dir / "prototype_save.pkl"
+def save(state: dict, filename: str = "prototype_save.pkl"):
+    path = checkpoint_dir / filename
+    with open(path, 'wb') as f:
+        print(f'saving {filename}')
         pickle.dump(state, f)
 
 def load():

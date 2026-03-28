@@ -256,6 +256,7 @@ if __name__ == '__main__':
             if max_score > best_ever:
                 best_ever = max_score
                 plateau_counter = 0
+                utils.save(state, "prototype_best.pkl")
             else:
                 plateau_counter += 1
             avg_score = np.average(scores)

@@ -198,17 +198,30 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             stagnant_killed += 1
             killed_genomes += len(species_pop[i])
 
-    # protection: species with highest avg of last N best scores is immune
+    # protection: immune species cannot be stagnation-killed
+    def _protect(idx):
+        if idx not in survivors:
+            survivors.append(idx)
+            nonlocal stagnant_killed, killed_genomes
+            stagnant_killed -= 1
+            killed_genomes -= len(species_pop[idx])
+
+    # 1) best average recent performer
     def protection_score(s):
         return np.mean(s.best_history) if s.best_history else -np.inf
 
     best_prot = max(protection_score(s) for s in species)
     for i, s in enumerate(species):
-        if protection_score(s) == best_prot:
-            if i not in survivors:
-                survivors.append(i)
-                stagnant_killed -= 1
-                killed_genomes -= len(species_pop[i])
+        if protection_score(s) >= best_prot:
+            _protect(i)
+
+    # 2) historical best scoring species (highest all-time best_score)
+    best_historical = max(range(len(species)), key=lambda i: species[i].best_score)
+    _protect(best_historical)
+
+    # 3) global best species (contains the top genome this generation)
+    best_global = max(range(len(species)), key=lambda i: max(unshifted_scores[g] for g in species_pop[i]))
+    _protect(best_global)
     deaths = len(species) - len(survivors)
 
     # cull stagnated species
