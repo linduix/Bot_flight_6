@@ -34,29 +34,32 @@ The active code lives in `python/tests/*_prototype.py`. The top-level `python/*.
 
 ### Core pipeline
 
-1. **headless_trainer_prototype.py** — Main training loop. Runs generations, manages stage progression, checkpoints every 100 gens, Discord logging.
+1. **headless_trainer_prototype.py** — Main training loop. Uses `multiprocessing.Pool` (one worker per CPU core, SIGINT-ignored) to score genomes in parallel chunks. Manages stage progression, checkpoints every 100 gens, 50-gen rolling metric buffer with Discord logging.
 2. **drone_prototype.py** — 2D rigid body physics. Two independent thrusters with angle/thrust control. Provides 8 sensor inputs (bias, delta_x, delta_y, angle, vel_x, vel_y, angular_vel, thruster angles) to 4 outputs (thruster turns + throttles).
 3. **network_prototype.py** — NEAT neural network. Feed-forward evaluation with topological sort. Supports hidden nodes added via mutation.
 4. **genome_prototype.py** — Genome representation: node genes + connection genes with innovation numbers.
-5. **breeding_prototype.py** — Speciation (compatibility distance), crossover, elitism, species stagnation tracking. Adaptive distance threshold (0.1–10+).
+5. **breeding_prototype.py** — Speciation (compatibility distance), crossover, elitism, species stagnation tracking. Adaptive distance threshold (0.1–10+). Three-tier species immunity prevents stagnation-killing: (1) best average recent performer, (2) historical best species, (3) species containing global best genome.
 6. **mutation_prototype.py** — Weight perturbation (80%), add connection (5%), add node (3%).
 7. **scoring_prototype.py** — Fitness evaluation. Stage 0: hover in place. Stage 1: target acquisition. Rewards progress toward target, penalizes lateral motion, bonuses for precision hover and completion.
-8. **util_prototype.py** — Discord webhook logging, config helpers.
+8. **prototype_stage1.py** — Stage 1 directional training. Tests 8 compass directions (N, NE, E, SE, S, SW, W, NW) simultaneously via `stage1_vmax_test`. Per-direction difficulty tracking with gap-squared weighting to favor weakest directions.
+9. **util_prototype.py** — Discord webhook logging (batched with configurable interval), checkpoint save/load with custom filenames.
 
 ### Training stages
 
 - **Stage 0**: Learn to hover (stationary target at spawn)
-- **Stage 1**: Navigate to target with increasing spawn distance based on completion rates
+- **Stage 1**: Navigate to targets in 8 compass directions with per-direction difficulty scaling. Spawn distance increases based on completion rates. All 8 directions tested simultaneously each evaluation.
 
 ### Persistence
 
-- Checkpoints saved as pickle to `data/checkpoints/` every 100 generations
+- Two checkpoint files in `data/checkpoints/`:
+  - `prototype_save.pkl` — periodic save every 100 generations
+  - `prototype_best.pkl` — saved whenever a new all-time best score is achieved
 - State includes: generation, population, innovation tracker, species, best genome, historical scores
-- Discord webhook notifications configured via `.env` (DISCORD_WEBHOOK_URL, DISCORD_LOGGING_ENABLED, INSTANCE_NAME)
+- Discord webhook notifications configured via env vars: `DISCORD_WEBHOOK`, `NAME`, `LOGGING` (ON/OFF)
 
 ## Conventions
 
-- All tunable parameters should come from `data/simulation.toml` config, never hard-coded (aspiration — current prototypes still have inline constants)
-- Population size: 1000 drones per generation
+- All tunable parameters should come from `data/simulation.toml` config, never hard-coded (aspiration — current prototypes still use inline config dicts)
+- Population size: 500 drones per generation
 - Persist run artifacts under `data/`
 - Input vectors use logarithmic encoding for normalization

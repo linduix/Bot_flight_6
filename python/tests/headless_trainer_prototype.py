@@ -64,8 +64,8 @@ if __name__ == '__main__':
     # cProfile.run('hover_scorer_headless(drones, config["width"], config["height"], config["meters_to_pixels"], limit=5)')
 
     # setup discord logger
-    # load_dotenv()
-    logging = os.environ.get('LOGGING', 'OFF') == 'ON'
+    load_dotenv()
+    logging = os.environ['LOGGING'] == 'ON'
 
     # webhook test
     if logging:
