@@ -6,17 +6,16 @@ import numpy as np
 import math
 import sys
 
-def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, screen, clock):
+def exhibition(drones, screen_width, screen_height, meters_to_pixels, screen, clock):
     font = pg.font.SysFont(None, 28)
+    label_font = pg.font.SysFont(None, 22)
     # fixed target in center
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
-    # drone initialization
-    start_pos = target
-
     # initialize all drones
-    drone.reset_state(start_pos)
-    drone.waypoint = target.copy()
+    for name, drone, color in drones:
+        drone.reset_state(target)
+        drone.waypoint = target.copy()
 
     time = 0.0
     distance_limit = np.sqrt(screen_height**2 + screen_width**2) / meters_to_pixels
@@ -25,7 +24,7 @@ def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, s
         # update target
         target = pg.mouse.get_pos()
         target = (target[0] / meters_to_pixels, (screen_height - target[1]) / meters_to_pixels)
-        drone.waypoint = np.array(target)
+        target_arr = np.array(target)
 
         # visual mode clock
         dt = clock.tick(60) / 1000
@@ -35,28 +34,47 @@ def exhibition(drone: Ai_Drone, screen_width, screen_height, meters_to_pixels, s
 
         screen.fill((20, 20, 20))
 
-        # update drone
-        drone.handle_input(None, dt)
-        drone.update(dt)
+        for name, drone, color in drones:
+            drone.waypoint = target_arr.copy()
 
-        # calculate score
-        dx = drone.pos[0] - target[0]
-        dy = drone.pos[1] - target[1]
-        dist = math.hypot(dx, dy)
+            # update drone
+            drone.handle_input(None, dt)
+            drone.update(dt)
 
-        # disable if too far
-        if dist > distance_limit:
-            drone.reset_state(target)
+            # disable if too far
+            dx = drone.pos[0] - target[0]
+            dy = drone.pos[1] - target[1]
+            dist = math.hypot(dx, dy)
+            if dist > distance_limit:
+                drone.reset_state(target_arr)
 
-        dist_text = font.render(f"Distance to mouse: {dist:.2f} m", True, (230, 230, 230))
-        screen.blit(dist_text, (10, 10))
+            # draw particles and body
+            drone.draw_particles(screen, dt)
+            drone.draw_body(screen)
 
-        # draw particles and body
-        drone.draw_particles(screen, dt)
-        drone.draw_body(screen)
+            # draw label above drone
+            px = int(drone.pos[0] * meters_to_pixels)
+            py = int(screen_height - drone.pos[1] * meters_to_pixels) - 30
+            label_surf = label_font.render(name, True, color)
+            label_rect = label_surf.get_rect(center=(px, py))
+            screen.blit(label_surf, label_rect)
 
         # draw target
         pg.draw.circle(screen, (100, 230, 100), (int(target[0]*meters_to_pixels), int(screen_height - target[1]*meters_to_pixels)), 2)
+
+        # HUD
+        info_y = 10
+        for name, drone, color in drones:
+            dx = drone.pos[0] - target[0]
+            dy = drone.pos[1] - target[1]
+            dist = math.hypot(dx, dy)
+            dist_text = font.render(f"{name}: {dist:.2f} m", True, color)
+            screen.blit(dist_text, (10, info_y))
+            info_y += 26
+
+        fps_text = font.render(f"FPS: {clock.get_fps():.0f}", True, (150, 150, 150))
+        screen.blit(fps_text, (screen_width - 100, 10))
+
         pg.display.flip()
         time += dt
 
@@ -67,11 +85,13 @@ config = {
     "meters_to_pixels": 10
 }
 
+best_path = utils.checkpoint_dir / "prototype_best.pkl"
+
 if __name__ == '__main__':
     # pygame setup
     pg.init()
     screen = pg.display.set_mode((config["width"], config["height"]))
-    pg.display.set_caption("Visual Training")
+    pg.display.set_caption("Showcase")
     clock = pg.time.Clock()
 
     # node graph vis
@@ -79,22 +99,30 @@ if __name__ == '__main__':
     viz = mp.Process(target=utils.viz_process, args=(viz_queue,))
     viz.start()
 
-    # load saved state
-    if utils.save_path.exists():
-        state = utils.load()
-    else:
-        sys.exit()
+    # load both checkpoints
+    drones = []
 
-    drone: Ai_Drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], state['best_drone'])
-    viz_queue.put(drone.brain.genome)
-    print(state['gen'])
+    if best_path.exists():
+        best_state = utils.load(best_path)
+        best_drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], best_state['best_drone'])
+        drones.append(("Best Save", best_drone, (100, 230, 130)))
+        viz_queue.put(best_drone.brain.genome)
+        print(f"Best save loaded (gen {best_state['gen']})")
+
+    if utils.save_path.exists():
+        current_state = utils.load()
+        current_drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], current_state['best_drone'])
+        drones.append(("Current Save", current_drone, (100, 160, 230)))
+        print(f"Current save loaded (gen {current_state['gen']})")
+
+    if not drones:
+        print("No checkpoints found.")
+        sys.exit()
 
     done = False
     while not done:
-
-        # run scorer
         return_code = exhibition(
-            drone,
+            drones,
             config["width"],
             config["height"],
             config["meters_to_pixels"],

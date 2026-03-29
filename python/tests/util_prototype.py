@@ -18,9 +18,10 @@ def save(state: dict, filename: str = "prototype_save.pkl"):
         print(f'saving {filename}')
         pickle.dump(state, f)
 
-def load():
-    with open(save_path, 'rb') as f:
-        print('loading file')
+def load(path=None):
+    p = path or save_path
+    with open(p, 'rb') as f:
+        print(f'loading {p}')
         state = pickle.load(f)
     return state
 

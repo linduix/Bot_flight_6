@@ -44,10 +44,25 @@ The active code lives in `python/tests/*_prototype.py`. The top-level `python/*.
 8. **prototype_stage1.py** — Stage 1 directional training. Tests 8 compass directions (N, NE, E, SE, S, SW, W, NW) simultaneously via `stage1_vmax_test`. Per-direction difficulty tracking with gap-squared weighting to favor weakest directions.
 9. **util_prototype.py** — Discord webhook logging (batched with configurable interval), checkpoint save/load with custom filenames.
 
+### Target behavior
+
+The end goal is "guided munition" drone behavior for mouse-cursor chasing:
+
+- Immediate full-speed commitment on a direct attack vector toward the target
+- Maximum safe closing speed held throughout approach with no hesitation
+- Hard committed deceleration at the physics-dictated braking threshold
+- Precise stop at target with minimum residual velocity
+- Straight-line paths always, no arcing or lateral deviation
+- Smooth committed thrust with no oscillation
+- When target moves (mouse cursor), instant re-orientation and re-commitment
+
+Core scoring signal: `v_ratio = v_par / safe_v` where `safe_v = sqrt(2 * a_eff * d)` and `a_eff` accounts for gravity projected onto the braking direction. Asymmetric parabola rewards v_ratio=1.0 (at physics-max safe speed), steep penalty above 1.0 (can't stop in time).
+
 ### Training stages
 
 - **Stage 0**: Learn to hover (stationary target at spawn)
-- **Stage 1**: Navigate to targets in 8 compass directions with per-direction difficulty scaling. Spawn distance increases based on completion rates. All 8 directions tested simultaneously each evaluation.
+- **Stage 1** (current): Navigate to targets in 8 compass directions with per-direction difficulty scaling. Spawn distance increases based on completion rates. All 8 directions tested simultaneously each evaluation.
+- **Stage 1** (planned): Sequential random waypoints — touch-and-go intermediate waypoints with hover-hold on final waypoint. Fitness = waypoint_score + hover_score. Random placement with minimum distance floor, fly-throughs allowed. Difficulty knob: waypoint count in fixed time window, scaled by completion rate.
 
 ### Persistence
 
