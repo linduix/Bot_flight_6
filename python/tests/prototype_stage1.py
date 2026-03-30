@@ -295,11 +295,12 @@ def stage1_vmax_test(
     max_a = drones[0].thruster_force * 2 / drones[0].M
 
     # ── Per-drone state ────────────────────────────────────────────────
-    scores     = np.zeros(total)
-    hover_time = np.zeros(total)
-    total_dist = np.zeros(total)
-    prev_t1    = np.zeros(total)
-    prev_t2    = np.zeros(total)
+    vmax_scores = np.zeros(total)
+    comp_scores = np.zeros(total)
+    hover_time  = np.zeros(total)
+    total_dist  = np.zeros(total)
+    prev_t1     = np.zeros(total)
+    prev_t2     = np.zeros(total)
     completed: set[int] = set()  # flat indices
 
     # Init drones to their direction's spawn
@@ -359,7 +360,7 @@ def stage1_vmax_test(
             # ── Completion ────────────────────────────────────────
             if hover_time[ix] > 0.1 * limit:
                 eff = math.sqrt(max(d_initial, eps) / max(total_dist[ix], d_initial, eps))
-                scores[ix] += base_bonus * eff
+                comp_scores[ix] = base_bonus * eff
                 drone.enabled = False
                 completions.append(time)
                 completed.add(ix)
@@ -371,20 +372,32 @@ def stage1_vmax_test(
             dist_oob = math.hypot(p[0] - oob_centers[d_idx][0], p[1] - oob_centers[d_idx][1])
             if dist_oob > oob_radii[d_idx]:
                 drone.enabled = False
-                if scores[ix] > 0:
-                    scores[ix] /= 2
+                if vmax_scores[ix] > 0:
+                    vmax_scores[ix] /= 2
 
-            scores[ix] = max(scores[ix] + frame_score, 0.0)
+            vmax_scores[ix] = max(vmax_scores[ix] + frame_score, 0.0)
 
             prev_t1[ix], prev_t2[ix] = drone.t1_thrust, drone.t2_thrust
 
         time += dt
 
-    # ── Average scores across 8 directions per genome ──────────────────
-    genome_scores = np.zeros(N)
+    # ── Normalize components to 0-1 per drone ───────────────────────────
+    #   vmax theoretical max  = limit * (base_bonus / 20)
+    #   completion theoretical max = base_bonus
+    scores = np.zeros(total)
     for d_idx in range(D):
-        genome_scores += scores[d_idx * N : (d_idx + 1) * N]
-    genome_scores /= D
+        sl = slice(d_idx * N, (d_idx + 1) * N)
+        bb = base_bonuses[d_idx]
+        vmax_max = limit * (bb / 20)
+        vmax_norm = vmax_scores[sl] / (vmax_max + eps)
+        comp_norm = comp_scores[sl] / (bb + eps)
+        scores[sl] = 0.5 * np.clip(vmax_norm, 0, 1) + 0.5 * np.clip(comp_norm, 0, 1)
+
+    # ── Weighted min/mean across 8 directions per genome ────────────────
+    dir_scores = np.zeros((D, N))
+    for d_idx in range(D):
+        dir_scores[d_idx] = scores[d_idx * N : (d_idx + 1) * N]
+    genome_scores = 0.3 * dir_scores.mean(axis=0) + 0.7 * dir_scores.min(axis=0)
 
     # Average completion count: total completions / 8 directions
     avg_completions = len(completed) / D
