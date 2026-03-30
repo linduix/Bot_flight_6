@@ -222,6 +222,17 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # 3) global best species (contains the top genome this generation)
     best_global = max(range(len(species)), key=lambda i: max(unshifted_scores[g] for g in species_pop[i]))
     _protect(best_global)
+
+    # 4) most structurally isolated species (furthest avg distance from all other reps)
+    if len(species) >= 3:
+        reps = [s.rep for s in species]
+        mean_dists = []
+        for i, r in enumerate(reps):
+            others = [distance(r, reps[j]) for j in range(len(reps)) if j != i]
+            mean_dists.append(np.mean(others))
+        most_isolated = max(range(len(species)), key=lambda i: mean_dists[i])
+        _protect(most_isolated)
+
     deaths = len(species) - len(survivors)
 
     # cull stagnated species

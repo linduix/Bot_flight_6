@@ -296,7 +296,7 @@ if __name__ == '__main__':
             # log training stats to terminal
             delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            print(f"  score     max: {max_score:.4f} | avg: {avg_score:.4f} | rolling: {rolling_average:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}")
+            print(f"  score     max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}")
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
                 print(f"  progress  target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
@@ -447,7 +447,7 @@ if __name__ == '__main__':
                     first = True
                     utils.save(state)
                 elif max_score / target_score > .9:
-                    limit += 5
+                    limit = min(limit + 5, 30)
 
             # save progress every 500 gens
             if state['gen'] % 100 == 0:
