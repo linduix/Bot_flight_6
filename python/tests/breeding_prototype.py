@@ -6,6 +6,8 @@ import random
 STAGNATION_LIMIT = 25
 STAGNATION_CHANCES = 2          # lives before death (0 = instant kill at limit)
 PROTECTION_WINDOW = 10          # avg of last N best-genome scores for protection
+IMPROVEMENT_WINDOW = 10         # generations to look back for improvement rate
+IMPROVEMENT_ALPHA = 0.3         # exponent on improvement_rate multiplier
 
 class Species:
     def __init__(self, rep) -> None:
@@ -48,6 +50,11 @@ def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) ->
         # only copy disjoint genes from parent 1
         else:
             baby.connections.append(copy(connectionGene))
+
+    # inherit mutation_power as average of parents
+    p1_power = getattr(parent1, 'mutation_power', 0.3)
+    p2_power = getattr(parent2, 'mutation_power', 0.3)
+    baby.mutation_power = (p1_power + p2_power) / 2
 
     # collect all required nodes
     nodes_queue = set()
@@ -148,9 +155,9 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     min_score = min(adjusted_scores)
     shifted_scores = [s - min_score + 1e-6 for s in adjusted_scores]
 
+    raw_genome_scores = {genome: score for genome, score in zip(current_gen, raw_scores)}
     unshifted_scores = {genome: score for genome, score in zip(current_gen, adjusted_scores)}
     genome_scores = {genome: score for genome, score in zip(current_gen, shifted_scores)}
-    raw_genome_scores = genome_scores.copy()
 
     # speciation sorted by score
     species, species_pop = speciate(prev_species, threshold, current_gen)
@@ -171,14 +178,14 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     killed_genomes = 0
     for i, s in enumerate(species):
         improved = False
-        current_best = max(unshifted_scores[g] for g in species_pop[i])
+        current_best = max(raw_genome_scores[g] for g in species_pop[i])
         s.best_history.append(current_best)
         if len(s.best_history) > PROTECTION_WINDOW:
             s.best_history.pop(0)
         s.age += 1
 
         for g in species_pop[i]:
-            score = unshifted_scores[g]
+            score = raw_genome_scores[g]
             if score > s.best_score:
                 s.best_score = score
                 improved = True
@@ -220,7 +227,7 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     _protect(best_historical)
 
     # 3) global best species (contains the top genome this generation)
-    best_global = max(range(len(species)), key=lambda i: max(unshifted_scores[g] for g in species_pop[i]))
+    best_global = max(range(len(species)), key=lambda i: max(raw_genome_scores[g] for g in species_pop[i]))
     _protect(best_global)
 
     # 4) most structurally isolated species (furthest avg distance from all other reps)
@@ -255,6 +262,13 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
             fitness += genome_scores[genome]
         species_fitness.append(fitness)
 
+    # dyNEAT-style improvement rate boost
+    for i, s in enumerate(species):
+        window = min(IMPROVEMENT_WINDOW, len(s.best_history))
+        old = s.best_history[-window]
+        if old > 0:
+            species_fitness[i] *= max(1.0, s.best_history[-1] / old) ** IMPROVEMENT_ALPHA
+
     # species quota calculation
     quotas = []
     total_fitness = sum(species_fitness)
@@ -267,19 +281,33 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # print(f'quotas:    {quotas}')
     # print(f'scores:    {[round(float(s.best_history[-1]), 2) for s in species]}')
 
-    # cap quotas
-    # max_quota = int(poputlation_size * max(0.35, 1.1 / len(species_pop)))
-    # # excess = 0
-    # for ix, quota in enumerate(quotas):
-    #     # excess += max(quota - max_quota, 0)
-    #     quotas[ix] = min(quota, max_quota)
-
-    # i = 0
-    # while sum(quotas) < poputlation_size:
-    #     ix = i % len(quotas)
-    #     if quotas[ix] < max_quota:
-    #         quotas[ix] += 1
-    #     i += 1
+    # top up leftover slots using distance-from-mean as diversity pressure
+    shortfall = poputlation_size - sum(quotas)
+    if shortfall > 0 and len(species) > 1:
+        # compute mean compatibility distance of each species rep to all other reps
+        reps = [s.rep for s in species]
+        novelty_scores = []
+        for i, rep_i in enumerate(reps):
+            if not rep_i.connections:
+                novelty_scores.append(0.0)
+                continue
+            dists = []
+            for j, rep_j in enumerate(reps):
+                if i == j or not rep_j.connections:
+                    continue
+                dists.append(distance(rep_i, rep_j))
+            novelty_scores.append(np.mean(dists) if dists else 0.0)
+        total_novelty = sum(novelty_scores)
+        if total_novelty > 0:
+            # distribute proportionally to novelty, floored
+            bonus = [int(n / total_novelty * shortfall) for n in novelty_scores]
+            # sprinkle any remaining 1-by-1 to highest novelty species
+            remainder = shortfall - sum(bonus)
+            ranked = np.argsort(novelty_scores)[::-1]
+            for k in range(remainder):
+                bonus[ranked[k % len(ranked)]] += 1
+            for i in range(len(quotas)):
+                quotas[i] += bonus[i]
 
     # cull stats returned to caller
     cull_stats = {

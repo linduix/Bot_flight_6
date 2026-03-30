@@ -6,7 +6,8 @@
       "WebFetch(domain:www.pmdcorp.com)",
       "WebFetch(domain:mechatronics.studio)",
       "Bash(grep -r \"hover_scorer\\\\|stage1_viz\" /c/Users/Abdullah/Documents/GitHub/Bot_flight_6/python/tests/*.py)",
-      "Bash(grep -r \"dataclasses\" /c/Users/Abdullah/Documents/GitHub/Bot_flight_6/python/tests/*.py)"
+      "Bash(grep -r \"dataclasses\" /c/Users/Abdullah/Documents/GitHub/Bot_flight_6/python/tests/*.py)",
+      "Bash(git checkout:*)"
     ]
   }
 }

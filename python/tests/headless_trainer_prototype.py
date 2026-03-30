@@ -39,6 +39,12 @@ if __name__ == '__main__':
                 s.chances = STAGNATION_CHANCES
             if not hasattr(s, 'age'):
                 s.age = len(s.best_history)  # best guess from existing data
+        # patch old Genome objects missing mutation_power
+        for g in state.get('current_gen', []):
+            if not hasattr(g, 'mutation_power'):
+                g.mutation_power = 0.3
+        if state.get('best_drone') and not hasattr(state['best_drone'], 'mutation_power'):
+            state['best_drone'].mutation_power = 0.3
     else:
         print('created raw gen')
         # create the training state
@@ -101,7 +107,7 @@ if __name__ == '__main__':
 
         # ── 50-gen stats buffer for discord ──
         LOG_INTERVAL = 50
-        SCORE_BINS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
+        SCORE_BINS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0]
         log_buf = {
             'max_scores': [],
             'avg_scores': [],
@@ -119,6 +125,8 @@ if __name__ == '__main__':
             'stagnant_ratios': [],  # stagnant_species/total_species each gen
             'disabled_ratios': [],  # disabled_genes/total_genes each gen
             'score_deltas': [],     # Δ best_fitness each gen
+            'mut_power_means': [],  # mean mutation_power each gen
+            'mut_power_stds': [],   # std mutation_power each gen
         }
 
         # threshold stuff
@@ -221,6 +229,11 @@ if __name__ == '__main__':
             avg_disabled = np.average(disabled_counts)
             disabled_ratio = avg_disabled / avg_total_genes if avg_total_genes > 0 else 0.0
 
+            # mutation power stats
+            mut_powers = [g.mutation_power for g in state['current_gen']]
+            mut_power_mean = np.mean(mut_powers)
+            mut_power_std = np.std(mut_powers)
+
             # record best drone
             ix = np.argsort(scores)[-1]
             state['best_drone'] = state['current_gen'][ix]
@@ -290,26 +303,35 @@ if __name__ == '__main__':
                 top_species_fit = max(s.best_history[-1] for s in state['species'] if s.best_history) if state['species'] else 0
                 oldest_species = max(s.age for s in state['species']) if state['species'] else 0
                 most_stagnant = max(s.stagnation for s in state['species']) if state['species'] else 0
+                # per-species mutation power
+                species_mut_powers = []
+                for sp in species_pop:
+                    if sp:
+                        species_mut_powers.append(np.mean([g.mutation_power for g in sp]))
+                species_mut_min = min(species_mut_powers) if species_mut_powers else 0.0
+                species_mut_max = max(species_mut_powers) if species_mut_powers else 0.0
             else:
                 largest_species = top_species_fit = oldest_species = most_stagnant = 0
+                species_mut_min = species_mut_max = 0.0
 
             # log training stats to terminal
             delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            print(f"  score     max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}")
+            print(f"  score      max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}")
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
-                print(f"  progress  target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
+                print(f"  progress   target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
             else:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
                 comp_pct = avg_completions / pop_size * 100
-                print(f"  progress  complete: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {state['difficulty']:.2f}m | limit: {limit}")
+                print(f"  progress   complete: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {state['difficulty']:.2f}m | limit: {limit}")
             pop = config['population']
-            print(f"  species   {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
-            print(f"  genome    avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
-            print(f"  ratios    elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | stagnant: {stagnant_ratio:.2f}")
-            print(f"  timing    gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
+            print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
+            print(f"  genome     avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
+            print(f"  ratios     elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | stagnant: {stagnant_ratio:.2f}")
+            print(f"  mut_power  mean: {mut_power_mean:.3f} | std: {mut_power_std*100/mut_power_mean:.2f}% | species range: [{species_mut_min:.2f}, {species_mut_max:.2f}]")
+            print(f"  timing     gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
             # ── accumulate stats into 50-gen buffer ──
             log_buf['max_scores'].append(max_score)
@@ -323,6 +345,8 @@ if __name__ == '__main__':
             log_buf['stagnant_ratios'].append(stagnant_ratio)
             log_buf['disabled_ratios'].append(disabled_ratio)
             log_buf['score_deltas'].append(score_delta)
+            log_buf['mut_power_means'].append(mut_power_mean)
+            log_buf['mut_power_stds'].append(mut_power_std)
             log_buf['stagnant_killed'] += cull_stats['stagnant_killed']
             log_buf['killed_genomes'] += cull_stats['killed_genomes']
             # score distribution histogram
@@ -384,8 +408,12 @@ if __name__ == '__main__':
                 buf_disabled = np.mean(log_buf['disabled_ratios'])
                 buf_delta_gen = np.mean(log_buf['score_deltas'])
 
+                buf_mut_mean = np.mean(log_buf['mut_power_means'])
+                buf_mut_std = np.mean(log_buf['mut_power_stds'])
+
                 lines += [
                     f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  avg_nodes: {avg_nodes_buf:.1f}  pop: {pop_size}",
+                    f"MutPower mean: {buf_mut_mean:.3f}  std: {buf_mut_std*100/buf_mut_mean:.2f}%",
                     f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  stagnant: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}  Δ/gen: {buf_delta_gen:+.1f}",
                     f"Timing   avg: {avg_gt:.2f}s/gen  rate: {60/avg_gt:.1f}/min  elapsed: {elapsed_fmt}",
                     f"```",
@@ -412,15 +440,18 @@ if __name__ == '__main__':
                     'stagnant_ratios': [],
                     'disabled_ratios': [],
                     'score_deltas': [],
+                    'mut_power_means': [],
+                    'mut_power_stds': [],
                 }
 
             # adjust species thresholds
             diversity_ratio = len(species_pop)/config['population']
-            if diversity_ratio < spec_target_min:
-                diff = abs(diversity_ratio - (spec_target_min+spec_target_max)/2)
+            avg_target = (spec_target_min+spec_target_max)/2
+            if diversity_ratio < avg_target:
+                diff = abs(diversity_ratio - avg_target)
                 state["threshold"] *= max(1 - (diff * 0.5), 0.1)
-            elif diversity_ratio > spec_target_max:
-                diff = abs(diversity_ratio - (spec_target_min+spec_target_max)/2)
+            elif diversity_ratio > avg_target:
+                diff = abs(diversity_ratio - avg_target)
                 state["threshold"] *= 1 + (diff * 0.5)
 
             # adjust unified difficulty

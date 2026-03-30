@@ -22,7 +22,7 @@ class Innovations:
 
         return value
 
-def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.6, mutation_strength: float=.5):
+def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.6, mutation_strength: float=.3):
     for connection in connections:
         roll = np.random.rand()
         # 10% chance for nothing, 72% nudge, 8% reset
@@ -30,6 +30,22 @@ def mutate_weights(connections: list[ConnectionGene], mutation_rate: float=.6, m
             connection.weight = np.random.uniform(-1, 1)
         elif roll < mutation_rate:
             connection.weight += np.random.normal(0, mutation_strength)
+
+# self-adaptive mutation power bounds
+MUTATION_POWER_MIN = 0.05
+MUTATION_POWER_MAX = 3.0
+MUTATION_POWER_TAU = 0.1  # controls how fast mutation_power itself evolves
+
+MUTATION_POWER_DEFAULT = 0.3
+MUTATION_POWER_RESET_RATE = 0.05
+
+def mutate_mutation_power(genome):
+    """Mutate the genome's mutation_power using log-normal self-adaptation."""
+    if np.random.rand() < MUTATION_POWER_RESET_RATE:
+        genome.mutation_power = MUTATION_POWER_DEFAULT
+    else:
+        genome.mutation_power *= np.exp(MUTATION_POWER_TAU * np.random.randn() - 0.5 * MUTATION_POWER_TAU**2)
+    genome.mutation_power = np.clip(genome.mutation_power, MUTATION_POWER_MIN, MUTATION_POWER_MAX)
 
 def add_connection(genome: Genome, innovations: Innovations, weight=None):
     # get all node ids and existing connections
@@ -81,8 +97,9 @@ def mutate(genome, innovations: Innovations):
     add_connection_rate = .09
     add_node_rate = .03
 
-    # mutate weights
-    mutate_weights(genome.connections)
+    # self-adapt mutation power first, then use it for weight mutations
+    mutate_mutation_power(genome)
+    mutate_weights(genome.connections, mutation_strength=genome.mutation_power)
 
     # add connection
     if np.random.rand() < add_connection_rate:

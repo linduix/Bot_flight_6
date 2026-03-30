@@ -32,6 +32,7 @@ class ConnectionGene:
 class Genome:
     connections: list[ConnectionGene]
     nodes: list[NodeGene]
+    mutation_power: float = 0.3  # self-adaptive weight mutation magnitude
 
     @classmethod
     def new(cls):
