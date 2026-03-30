@@ -101,7 +101,7 @@ if __name__ == '__main__':
 
         # ── 50-gen stats buffer for discord ──
         LOG_INTERVAL = 50
-        SCORE_BINS = [0, 10, 50, 100, 200, 400, 600, 1000]
+        SCORE_BINS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
         log_buf = {
             'max_scores': [],
             'avg_scores': [],
@@ -296,7 +296,7 @@ if __name__ == '__main__':
             # log training stats to terminal
             delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            print(f"  score     max: {max_score:.2f} | avg: {avg_score:.2f} | rolling: {rolling_average:.2f} | best ever: {best_ever:.2f} | Δ: {delta_sign}{score_delta:.1f} | plateau: {plateau_counter}")
+            print(f"  score     max: {max_score:.4f} | avg: {avg_score:.4f} | rolling: {rolling_average:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}")
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
                 print(f"  progress  target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
@@ -329,7 +329,7 @@ if __name__ == '__main__':
             log_buf['score_hist'] += np.histogram(scores, bins=SCORE_BINS)[0]
             if stage == 1:
                 assert isinstance(completions, list)
-                log_buf['comp_counts'].append(len(completions))
+                log_buf['comp_counts'].append(avg_completions)
                 log_buf['comp_times'].extend(completions)
 
             # log to discord
@@ -344,19 +344,19 @@ if __name__ == '__main__':
                 lines = [
                     f"**{NAME} | S{stage} Gen {state['gen']}** ({n} gens)",
                     f"```",
-                    f"Score    peak: {buf_max:.0f}  low: {buf_min:.0f}  avg_best: {buf_avg_max:.0f}  avg_pop: {buf_avg_avg:.1f}",
-                    f"         best_ever: {best_ever:.2f}  plateau: {plateau_counter}",
+                    f"Score    peak: {buf_max:.4f}  low: {buf_min:.4f}  avg_best: {buf_avg_max:.4f}  avg_pop: {buf_avg_avg:.4f}",
+                    f"         best_ever: {best_ever:.4f}  plateau: {plateau_counter}",
                 ]
                 if stage == 0:
                     lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
                 else:
-                    # completion stats over window
+                    # completion stats over window (avg_completions = per-direction avg)
                     avg_comp = np.average(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
                     max_comp = max(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
                     avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
                     comp_rate = avg_comp / pop_size * 100
 
-                    lines.append(f"Complet  avg: {avg_comp:.0f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp}  avg_time: {avg_ct:.2f}s  diff: {state['difficulty']:.1f}m")
+                    lines.append(f"Complet  avg: {avg_comp:.1f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp:.1f}  avg_time: {avg_ct:.2f}s  diff: {state['difficulty']:.1f}m")
 
                 # species & stagnation over window
                 stag_info = f"now: {len(species_pop)}"
