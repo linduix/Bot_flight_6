@@ -4,7 +4,7 @@ from scoring_prototype import hover_scorer_headless
 from prototype_stage1 import stage1_vmax_test
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
-from breeding_prototype import breed, STAGNATION_CHANCES
+from breeding_prototype import breed, STAGNATION_CHANCES, STAGNATION_LIMIT
 from dotenv import load_dotenv
 import util_prototype as utils
 import numpy as np
@@ -122,7 +122,7 @@ if __name__ == '__main__':
             'elite_ratios': [],     # best/mean fitness each gen
             'density_ratios': [],   # mean_nodes/mean_connections each gen
             'species_densities': [], # species_count/pop_size each gen
-            'stagnant_ratios': [],  # stagnant_species/total_species each gen
+            'high_stag_ratios': [],  # species above 50% stagnation limit / total each gen
             'disabled_ratios': [],  # disabled_genes/total_genes each gen
             'score_deltas': [],     # Δ best_fitness each gen
             'mut_power_means': [],  # mean mutation_power each gen
@@ -251,7 +251,7 @@ if __name__ == '__main__':
                 state['current_gen'] = next_gen
                 state['gen'] += 1
                 state['species'] = spec
-                stagnant_count = sum(1 for s in spec if s.stagnation > 0)
+                stagnant_count = sum(1 for s in spec if s.stagnation > STAGNATION_LIMIT // 2)
             else:
                 species_pop = []
                 deaths = 0
@@ -281,7 +281,7 @@ if __name__ == '__main__':
             elite_ratio = max_score / avg_score if avg_score > 0 else float('nan')
             density_ratio = average_nodes / average_connections if average_connections > 0 else float('nan')
             species_density = len(species_pop) / pop_size if pop_size > 0 else 0.0
-            stagnant_ratio = stagnant_count / len(species_pop) if species_pop else 0.0
+            high_stag_ratio = stagnant_count / len(species_pop) if species_pop else 0.0
             total_elapsed = time.time() - training_start
             gen_rate = 60 / elapsed if elapsed > 0 else 0
             # format total elapsed
@@ -329,7 +329,7 @@ if __name__ == '__main__':
             pop = config['population']
             print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
             print(f"  genome     avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
-            print(f"  ratios     elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | stagnant: {stagnant_ratio:.2f}")
+            print(f"  ratios     elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | high_stag: {high_stag_ratio:.2f}")
             print(f"  mut_power  mean: {mut_power_mean:.3f} | std: {mut_power_std*100/mut_power_mean:.2f}% | species range: [{species_mut_min:.2f}, {species_mut_max:.2f}]")
             print(f"  timing     gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
@@ -342,7 +342,7 @@ if __name__ == '__main__':
             log_buf['elite_ratios'].append(elite_ratio)
             log_buf['density_ratios'].append(density_ratio)
             log_buf['species_densities'].append(species_density)
-            log_buf['stagnant_ratios'].append(stagnant_ratio)
+            log_buf['high_stag_ratios'].append(high_stag_ratio)
             log_buf['disabled_ratios'].append(disabled_ratio)
             log_buf['score_deltas'].append(score_delta)
             log_buf['mut_power_means'].append(mut_power_mean)
@@ -404,7 +404,7 @@ if __name__ == '__main__':
                 buf_elite    = np.nanmean(log_buf['elite_ratios'])
                 buf_density  = np.nanmean(log_buf['density_ratios'])
                 buf_spec_den = np.mean(log_buf['species_densities'])
-                buf_stagnant = np.mean(log_buf['stagnant_ratios'])
+                buf_stagnant = np.mean(log_buf['high_stag_ratios'])
                 buf_disabled = np.mean(log_buf['disabled_ratios'])
                 buf_delta_gen = np.mean(log_buf['score_deltas'])
 
@@ -414,7 +414,7 @@ if __name__ == '__main__':
                 lines += [
                     f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  avg_nodes: {avg_nodes_buf:.1f}  pop: {pop_size}",
                     f"MutPower mean: {buf_mut_mean:.3f}  std: {buf_mut_std*100/buf_mut_mean:.2f}%",
-                    f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  stagnant: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}  Δ/gen: {buf_delta_gen:+.1f}",
+                    f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  high_stag: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}  Δ/gen: {buf_delta_gen:+.1f}",
                     f"Timing   avg: {avg_gt:.2f}s/gen  rate: {60/avg_gt:.1f}/min  elapsed: {elapsed_fmt}",
                     f"```",
                 ]
@@ -437,7 +437,7 @@ if __name__ == '__main__':
                     'elite_ratios': [],
                     'density_ratios': [],
                     'species_densities': [],
-                    'stagnant_ratios': [],
+                    'high_stag_ratios': [],
                     'disabled_ratios': [],
                     'score_deltas': [],
                     'mut_power_means': [],
@@ -460,7 +460,7 @@ if __name__ == '__main__':
                 target_rate = 0.1
                 rate = avg_completions / config['population']
                 error = rate - target_rate
-                if abs(error) > 0.02:
+                if error > 0.02:
                     state['difficulty'] *= error + 1
                     state['difficulty'] = max(state['difficulty'], 10)
 
