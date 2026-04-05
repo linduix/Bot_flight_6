@@ -2,6 +2,7 @@ import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 from scoring_prototype import hover_scorer_headless
 from prototype_stage1 import stage1_vmax_test
+from prototype_stage2 import stage2_vmax_test, POOL_REFRESH_GENS
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
 from breeding_prototype import breed, STAGNATION_CHANCES, STAGNATION_LIMIT
@@ -94,10 +95,16 @@ if __name__ == '__main__':
     print('training starting...')
     try:
         stage = state['stage']
+        FORCE_STAGE = None  # set to 2 to force stage 2 for testing
+        if FORCE_STAGE is not None:
+            stage = FORCE_STAGE
+            state['stage'] = FORCE_STAGE
         if stage == 0:
             limit = 5
-        else:
+        elif stage == 1:
             limit = 7
+        else:
+            limit = 15
         done = False
         profile = False
         first = True
@@ -163,7 +170,7 @@ if __name__ == '__main__':
                         genomes, config["width"], config["height"],
                         config["meters_to_pixels"], limit=limit
                     )
-            else:
+            elif stage == 1:
                 iterations = 0
                 if use_mp:
                     N = len(genomes)
@@ -183,6 +190,45 @@ if __name__ == '__main__':
                     return_code, scores, completions, avg_completions = stage1_vmax_test(
                         genomes, config["width"], config["height"],
                         config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                    )
+            elif stage == 2:
+                iterations = 0
+                # Pool refresh: same seed for POOL_REFRESH_GENS, then rotate
+                if 'pool_seed' not in state or state.get('pool_gen', 0) >= POOL_REFRESH_GENS:
+                    val_seed = state.get('validation_seed', 42)
+                    new_seed = int(np.random.randint(0, 2**31))
+                    while new_seed == val_seed:
+                        new_seed = int(np.random.randint(0, 2**31))
+                    state['pool_seed'] = new_seed
+                    state['pool_gen'] = 0
+                    state['pool_baseline_pending'] = True
+                seed = state['pool_seed']
+                state['pool_gen'] = state.get('pool_gen', 0) + 1
+                if use_mp:
+                    N = len(genomes)
+                    chunk_size = math.ceil(N / num_workers)
+                    chunks = [genomes[i:i+chunk_size] for i in range(0, N, chunk_size)]
+                    results = pool.starmap(stage2_vmax_test, [
+                        (chunk, config["width"], config["height"], config["meters_to_pixels"], limit, state['difficulty'], seed)
+                        for chunk in chunks
+                    ])
+                    return_code = max(r[0] for r in results)
+                    scores = np.concatenate([r[1] for r in results])
+                    completions = []
+                    for r in results:
+                        completions.extend(r[2])
+                    avg_completions = sum(r[3] for r in results)
+                    wp_stats = {
+                        'min': min(r[4]['min'] for r in results),
+                        'q1': np.mean([r[4]['q1'] for r in results]),
+                        'q3': np.mean([r[4]['q3'] for r in results]),
+                        'max': max(r[4]['max'] for r in results),
+                    }
+                    avg_leg_dist = results[0][5]  # same chains, same value across chunks
+                else:
+                    return_code, scores, completions, avg_completions, wp_stats, avg_leg_dist = stage2_vmax_test(
+                        genomes, config["width"], config["height"],
+                        config["meters_to_pixels"], limit=limit, diff=state['difficulty'], seed=seed,
                     )
 
             # time end
@@ -244,6 +290,14 @@ if __name__ == '__main__':
                 pr = cProfile.Profile()
                 pr.enable()
 
+            # Pool baseline: recalibrate species best_score on first gen of new pool
+            # so the new pool's score scale doesn't cause false stagnation.
+            # Stagnation counters reset to 0 naturally (best_score = -inf → improved).
+            # Pool lasts 100 gens vs 25 gen stagnation limit, so bad species still die.
+            if stage == 2 and state.get('pool_baseline_pending', False):
+                for s in state.get('species', []):
+                    s.best_score = -np.inf
+
             # breed next generation
             state.setdefault('species', [])
             if not return_code:
@@ -266,7 +320,28 @@ if __name__ == '__main__':
                 profile = False
 
             # compute stats for logging
-            if max_score > best_ever:
+            if stage == 2 and state.get('pool_baseline_pending', False):
+                state['pool_baseline_pending'] = False
+            if stage == 2:
+                # Fixed-seed validation for objective best drone comparison
+                state.setdefault('validation_seed', 42)
+                state.setdefault('best_validation_score', 0.0)
+                ix_best = int(np.argsort(scores)[-1])
+                best_genome = state['current_gen'][ix_best]
+                _, val_scores, *_ = stage2_vmax_test(
+                    [best_genome], config["width"], config["height"],
+                    config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                    seed=state['validation_seed'],
+                )
+                val_score = float(val_scores[0])
+                if val_score > state['best_validation_score']:
+                    state['best_validation_score'] = val_score
+                    plateau_counter = 0
+                    utils.save(state, "prototype_best.pkl")
+                else:
+                    plateau_counter += 1
+                best_ever = state['best_validation_score']
+            elif max_score > best_ever:
                 best_ever = max_score
                 plateau_counter = 0
                 utils.save(state, "prototype_best.pkl")
@@ -321,11 +396,20 @@ if __name__ == '__main__':
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
                 print(f"  progress   target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
-            else:
+            elif stage == 1:
                 assert isinstance(completions, list)
                 c_time = np.average(completions) if completions else float("nan")
                 comp_pct = avg_completions / pop_size * 100
                 print(f"  progress   complete: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {state['difficulty']:.2f}m | limit: {limit}")
+            elif stage == 2:
+                assert isinstance(completions, list)
+                c_time = np.average(completions) if completions else float("nan")
+                comp_pct = avg_completions / pop_size * 100
+                pool_gen = state.get('pool_gen', 0)
+                pool_fresh = " [NEW POOL]" if pool_gen == 1 else ""
+                print(f"  progress   chains: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | limit: {limit}")
+                print(f"  waypoints  min: {wp_stats['min']:.1f} | Q1: {wp_stats['q1']:.1f} | Q3: {wp_stats['q3']:.1f} | max: {wp_stats['max']:.1f}")
+                print(f"  pool       gen {pool_gen}/{POOL_REFRESH_GENS} | avg_leg: {avg_leg_dist:.1f}m{pool_fresh}")
             pop = config['population']
             print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
             print(f"  genome     avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
@@ -351,10 +435,15 @@ if __name__ == '__main__':
             log_buf['killed_genomes'] += cull_stats['killed_genomes']
             # score distribution histogram
             log_buf['score_hist'] += np.histogram(scores, bins=SCORE_BINS)[0]
-            if stage == 1:
+            if stage >= 1:
                 assert isinstance(completions, list)
                 log_buf['comp_counts'].append(avg_completions)
                 log_buf['comp_times'].extend(completions)
+            if stage == 2:
+                log_buf.setdefault('wp_mins', []).append(wp_stats['min'])
+                log_buf.setdefault('wp_q1s', []).append(wp_stats['q1'])
+                log_buf.setdefault('wp_q3s', []).append(wp_stats['q3'])
+                log_buf.setdefault('wp_maxs', []).append(wp_stats['max'])
 
             # log to discord
             if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
@@ -373,14 +462,23 @@ if __name__ == '__main__':
                 ]
                 if stage == 0:
                     lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
-                else:
-                    # completion stats over window (avg_completions = per-direction avg)
+                elif stage == 1:
                     avg_comp = np.average(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
                     max_comp = max(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
                     avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
                     comp_rate = avg_comp / pop_size * 100
-
                     lines.append(f"Complet  avg: {avg_comp:.1f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp:.1f}  avg_time: {avg_ct:.2f}s  diff: {state['difficulty']:.1f}m")
+                elif stage == 2:
+                    avg_comp = np.average(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
+                    max_comp = max(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
+                    avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
+                    comp_rate = avg_comp / pop_size * 100
+                    buf_min = np.mean(log_buf.get('wp_mins', [0]))
+                    buf_q1 = np.mean(log_buf.get('wp_q1s', [0]))
+                    buf_q3 = np.mean(log_buf.get('wp_q3s', [0]))
+                    buf_max = np.mean(log_buf.get('wp_maxs', [0]))
+                    lines.append(f"Chains   avg: {avg_comp:.1f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp:.1f}  avg_time: {avg_ct:.2f}s")
+                    lines.append(f"Waypnts  min: {buf_min:.1f}  Q1: {buf_q1:.1f}  Q3: {buf_q3:.1f}  max: {buf_max:.1f}")
 
                 # species & stagnation over window
                 stag_info = f"now: {len(species_pop)}"
@@ -479,6 +577,18 @@ if __name__ == '__main__':
                     utils.save(state)
                 elif max_score / target_score > .9:
                     limit = min(limit + 5, 30)
+
+            # progress stage 1 → stage 2
+            if stage == 1 and state['difficulty'] >= 50:
+                stage = 2
+                state['stage'] = 2
+                limit = 15
+                state['historical_score'] = []
+                best_ever = 0
+                plateau_counter = 0
+                state['species'] = []
+                first = True
+                utils.save(state)
 
             # save progress every 500 gens
             if state['gen'] % 100 == 0:

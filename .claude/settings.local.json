@@ -7,7 +7,8 @@
       "WebFetch(domain:mechatronics.studio)",
       "Bash(grep -r \"hover_scorer\\\\|stage1_viz\" /c/Users/Abdullah/Documents/GitHub/Bot_flight_6/python/tests/*.py)",
       "Bash(grep -r \"dataclasses\" /c/Users/Abdullah/Documents/GitHub/Bot_flight_6/python/tests/*.py)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(ls C:/Users/Abdullah/git/bot_flight_6/python/tests/prototype_stage*.py)"
     ]
   }
 }
