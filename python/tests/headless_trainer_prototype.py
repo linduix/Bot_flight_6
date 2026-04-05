@@ -18,7 +18,7 @@ import io
 import requests
 
 config = {
-    "population": 500,
+    "population": 300,
     "width": 800,
     "height": 600,
     "meters_to_pixels": 15
@@ -33,17 +33,26 @@ if __name__ == '__main__':
     if utils.save_path.exists():
         state = utils.load()
         # patch old Species objects missing new fields
-        for s in state.get('species', []):
+        for i, s in enumerate(state.get('species', [])):
             if not hasattr(s, 'best_history'):
                 s.best_history = []
             if not hasattr(s, 'chances'):
                 s.chances = STAGNATION_CHANCES
             if not hasattr(s, 'age'):
                 s.age = len(s.best_history)  # best guess from existing data
-        # patch old Genome objects missing mutation_power
+            if not hasattr(s, 'id'):
+                s.id = i  # backfill legacy species with unique index
+        if state.get('species'):
+            from breeding_prototype import Species
+            Species._next_id = max(s.id for s in state['species']) + 1
+        # patch old Genome objects missing new fields
         for g in state.get('current_gen', []):
             if not hasattr(g, 'mutation_power'):
                 g.mutation_power = 0.3
+            if not hasattr(g, '_species_id'):
+                g._species_id = None
+            if not hasattr(g, '_conn_cache'):
+                g._conn_cache = None
         if state.get('best_drone') and not hasattr(state['best_drone'], 'mutation_power'):
             state['best_drone'].mutation_power = 0.3
     else:
@@ -579,7 +588,7 @@ if __name__ == '__main__':
                     limit = min(limit + 5, 30)
 
             # progress stage 1 → stage 2
-            if stage == 1 and state['difficulty'] >= 50:
+            if stage == 1 and state['difficulty'] >= 40:
                 stage = 2
                 state['stage'] = 2
                 limit = 15

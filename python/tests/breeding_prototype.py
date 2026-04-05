@@ -10,7 +10,11 @@ IMPROVEMENT_WINDOW = 10         # generations to look back for improvement rate
 IMPROVEMENT_ALPHA = 0.3         # exponent on improvement_rate multiplier
 
 class Species:
+    _next_id: int = 0  # class-level counter, auto-increments on each new Species
+
     def __init__(self, rep) -> None:
+        self.id = Species._next_id
+        Species._next_id += 1
         self.rep: Genome = rep
         self.stagnation = 0
         self.best_score = -np.inf
@@ -25,9 +29,9 @@ def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) ->
     else:
         parent1, parent2 = genome2, genome1
 
-    # index connectienos using their innovation number per parent
-    connections1: dict[int, ConnectionGene] = {c.innovation: c for c in parent1.connections}
-    connections2: dict[int, ConnectionGene] = {c.innovation: c for c in parent2.connections}
+    # use cached connection dicts — no rebuild cost
+    connections1: dict[int, ConnectionGene] = parent1.conn_dict
+    connections2: dict[int, ConnectionGene] = parent2.conn_dict
 
     # build baby genome
     baby = Genome.new()
@@ -56,6 +60,12 @@ def crossover(genome1: Genome, genome2: Genome, score1: float, score2: float) ->
     p2_power = getattr(parent2, 'mutation_power', 0.3)
     baby.mutation_power = (p1_power + p2_power) / 2
 
+    # inherit species ID from fitter parent — gives sticky speciation a good first guess
+    baby._species_id = parent1._species_id
+
+    # baby connections are now final — build cache once here
+    baby.invalidate_cache()
+
     # collect all required nodes
     nodes_queue = set()
     for c in baby.connections:
@@ -77,9 +87,9 @@ def distance(genome1: Genome, genome2: Genome, c1=1, c2=1, c3=0.4) -> float:
     if genome1.connections == [] or genome2.connections == []:
         raise ValueError("Both genomes need atleast 1 connection")
 
-    # innvoations in genomes
-    g1_connections = {c.innovation: c for c in genome1.connections}
-    g2_connections = {c.innovation: c for c in genome2.connections}
+    # use cached dicts — rebuilt only when connections list structurally changes
+    g1_connections = genome1.conn_dict
+    g2_connections = genome2.conn_dict
 
     # max innovation vals for both
     g1_max, g2_max = max(g1_connections.keys()), max(g2_connections.keys())
@@ -115,26 +125,41 @@ def speciate(species, threshold, genomes: list[Genome]):
     s: list[Species] = species    # species class array representing the species
     species_pop = [[] for _ in s] # the population grouped into species, index matched to species array
 
+    # build O(1) lookup: species_id -> index in s
+    species_id_to_idx = {spec.id: i for i, spec in enumerate(s)}
+
     # loop through each genome
     for genome in genomes:
         # if reps empty add first genome as rep
         if s == []:
             s.append(Species(genome))
             species_pop.append([genome])
+            genome._species_id = s[0].id
             continue
 
         match = False
-        # loop through and add to rep's species if distance < threshold
-        for i, spec in enumerate(s):
-            if distance(genome, spec.rep) < threshold:
-                species_pop[i].append(genome)
+
+        # sticky: check last gen's species first (O(1) lookup, one distance call)
+        if genome._species_id is not None:
+            cached_idx = species_id_to_idx.get(genome._species_id)
+            if cached_idx is not None and distance(genome, s[cached_idx].rep) < threshold:
+                species_pop[cached_idx].append(genome)
                 match = True
-                break
+
+        if not match:
+            # fall back to full scan
+            for i, spec in enumerate(s):
+                if distance(genome, spec.rep) < threshold:
+                    species_pop[i].append(genome)
+                    genome._species_id = spec.id
+                    match = True
+                    break
 
         # if no matches found, turn it into a rep
         if not match:
             s.append(Species(genome))
             species_pop.append([genome])
+            genome._species_id = s[-1].id
 
     return s, species_pop
 
@@ -231,18 +256,28 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     _protect(best_global)
 
     # 4) most structurally isolated species (furthest avg distance from all other reps)
-    if len(species) >= 3:
+    # Build shared S×S rep distance matrix — reused by novelty shortfall below
+    S = len(species)
+    rep_dist = [[0.0] * S for _ in range(S)]
+    if S >= 2:
         reps = [s.rep for s in species]
-        mean_dists = []
-        for i, r in enumerate(reps):
-            others = [distance(r, reps[j]) for j in range(len(reps)) if j != i]
-            mean_dists.append(np.mean(others))
-        most_isolated = max(range(len(species)), key=lambda i: mean_dists[i])
+        for i in range(S):
+            for j in range(i + 1, S):
+                if reps[i].connections and reps[j].connections:
+                    d = distance(reps[i], reps[j])
+                else:
+                    d = 0.0
+                rep_dist[i][j] = d
+                rep_dist[j][i] = d
+
+    if S >= 3:
+        mean_dists = [np.mean([rep_dist[i][j] for j in range(S) if j != i]) for i in range(S)]
+        most_isolated = max(range(S), key=lambda i: mean_dists[i])
         _protect(most_isolated)
 
     deaths = len(species) - len(survivors)
 
-    # cull stagnated species
+    # cull stagnated species — also reindex rep_dist to match survivors
     temp_species = []
     temp_species_pop  = []
     for i in survivors:
@@ -250,6 +285,8 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
         temp_species_pop.append(species_pop[i])
     species = temp_species
     species_pop = temp_species_pop
+    # reindex rep_dist rows/cols to survivors only so novelty loop indices are correct
+    rep_dist = [[rep_dist[i][j] for j in survivors] for i in survivors]
 
     # fitness sharing and average fitness per species
     species_fitness = []
@@ -284,18 +321,14 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # top up leftover slots using distance-from-mean as diversity pressure
     shortfall = poputlation_size - sum(quotas)
     if shortfall > 0 and len(species) > 1:
-        # compute mean compatibility distance of each species rep to all other reps
-        reps = [s.rep for s in species]
+        # reuse the rep_dist matrix already computed above — no extra distance() calls
+        S_now = len(species)
         novelty_scores = []
-        for i, rep_i in enumerate(reps):
-            if not rep_i.connections:
+        for i in range(S_now):
+            if not species[i].rep.connections:
                 novelty_scores.append(0.0)
                 continue
-            dists = []
-            for j, rep_j in enumerate(reps):
-                if i == j or not rep_j.connections:
-                    continue
-                dists.append(distance(rep_i, rep_j))
+            dists = [rep_dist[i][j] for j in range(S_now) if j != i and species[j].rep.connections]
             novelty_scores.append(np.mean(dists) if dists else 0.0)
         total_novelty = sum(novelty_scores)
         if total_novelty > 0:

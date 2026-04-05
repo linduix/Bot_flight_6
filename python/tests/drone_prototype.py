@@ -241,6 +241,7 @@ class Ai_Drone(Drone):
     def __init__(self, pos, meters_to_pixels, surface_height, genome: Genome, headless=False):
         super().__init__(pos, meters_to_pixels, surface_height, headless=headless)
 
+        self.genome = genome
         self.brain = NeatNN(genome)
         self.waypoint: np.ndarray = np.array(pos, dtype=float)
 

@@ -33,6 +33,18 @@ class Genome:
     connections: list[ConnectionGene]
     nodes: list[NodeGene]
     mutation_power: float = 0.3  # self-adaptive weight mutation magnitude
+    _conn_cache: dict | None = None  # lazily built {innovation: ConnectionGene}, invalidated on structural change
+    _species_id: int | None = None   # ID of species this genome was assigned to last gen
+
+    @property
+    def conn_dict(self) -> dict:
+        """Cached {innovation: ConnectionGene}. Rebuilt only when connections list changes."""
+        if self._conn_cache is None:
+            self._conn_cache = {c.innovation: c for c in self.connections}
+        return self._conn_cache
+
+    def invalidate_cache(self):
+        self._conn_cache = None
 
     @classmethod
     def new(cls):
