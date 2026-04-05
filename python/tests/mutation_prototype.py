@@ -65,6 +65,7 @@ def add_connection(genome: Genome, innovations: Innovations, weight=None):
 
         innovation = innovations.resolve((a, b))
         genome.connections.append(create_connection(innovation, (a, b), weight=weight))
+        genome.invalidate_cache()
         break
 
 def add_node(genome: Genome, innovations: Innovations):
@@ -91,6 +92,7 @@ def add_node(genome: Genome, innovations: Innovations):
     # append the new connections to genome
     genome.connections.append(create_connection(innovation=innovation1, pair=(selected.input, selected.innovation), weight=selected.weight))
     genome.connections.append(create_connection(innovation=innovation2, pair=(selected.innovation, selected.output), weight=selected.weight))
+    genome.invalidate_cache()
 
 def mutate(genome, innovations: Innovations):
     # probabilities

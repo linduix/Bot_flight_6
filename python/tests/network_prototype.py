@@ -225,3 +225,5 @@ class NeatNN:
             cur[ix] = activation
 
         return cur[nodeix[9]], cur[nodeix[10]], cur[nodeix[11]], cur[nodeix[12]]
+
+

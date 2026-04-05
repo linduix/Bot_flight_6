@@ -106,7 +106,7 @@ if __name__ == '__main__':
         best_state = utils.load(best_path)
         best_drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], best_state['best_drone'])
         drones.append(("Best Save", best_drone, (100, 230, 130)))
-        viz_queue.put(best_drone.brain.genome)
+        viz_queue.put(best_drone.genome)
         print(f"Best save loaded (gen {best_state['gen']})")
 
     if utils.save_path.exists():
