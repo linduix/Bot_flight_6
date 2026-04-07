@@ -1,8 +1,9 @@
 import pygame as pg
 import numpy as np
 import math
-from network_prototype import NeatNN
+from network_prototype import NeatNN_fast
 from genome_prototype import Genome
+from numba import njit
 
 def rotate_vector(v, angle):
     # rotation Matrix:
@@ -15,6 +16,29 @@ def rotate_vector(v, angle):
 
 def normalize(x):
     return math.copysign(math.log1p(abs(x)), x)
+
+@njit
+def _nn_inputs(wx, wy, px, py, vx, vy, angle):
+    c = math.cos(angle)
+    s = math.sin(angle)
+    dx = wx - px
+    dy = wy - py
+    dxlocal = math.copysign(math.log1p(abs(-dx * s + dy * c)), -dx * s + dy * c)
+    dylocal = math.copysign(math.log1p(abs( dx * c + dy * s)),  dx * c + dy * s)
+    vxlocal = math.copysign(math.log1p(abs(-vx * s + vy * c)), -vx * s + vy * c)
+    vylocal = math.copysign(math.log1p(abs( vx * c + vy * s)),  vx * c + vy * s)
+    return dxlocal, dylocal, vxlocal, vylocal
+
+@njit
+def _apply_outputs(t1turn, t2turn, t1throttle, t2throttle,
+                   t1angle, t2angle, rot_speed, angle_min, angle_max, dt):
+    t1angle += t1turn * rot_speed * dt
+    t2angle += t2turn * rot_speed * dt
+    t1angle = min(max(t1angle, angle_min), angle_max)
+    t2angle = min(max(t2angle, angle_min), angle_max)
+    t1_thrust = max(0.0, t1throttle)
+    t2_thrust = max(0.0, t2throttle)
+    return t1angle, t2angle, t1_thrust, t2_thrust
 
 def m_to_pixel_position(position: np.ndarray, surface_height, meters_to_pixels):
     position = position * meters_to_pixels
@@ -73,6 +97,49 @@ class Particle:
     @property
     def alpha(self):
         return int(self.starting_a * (self.lifetime / self.max_lifetime))
+
+@njit
+def _calculate_forces_shit(t1_thrust, t2_thrust, thruster_force, t1angle, t2angle, angle, thruster_offset):
+        # f1 rotation
+        f1x = -(t1_thrust * thruster_force) * math.sin(t1angle)
+        f1y =  (t1_thrust * thruster_force) * math.cos(t1angle)
+
+        # f2 rotation
+        f2x = -(t2_thrust * thruster_force) * math.sin(t2angle)
+        f2y =  (t2_thrust * thruster_force) * math.cos(t2angle)
+
+        # combined force rotated by drone angle
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        F0 = (f1x+f2x)*cos_a - (f1y+f2y)*sin_a
+        F1 = (f1x+f2x)*sin_a + (f1y+f2y)*cos_a
+
+        # relative tourque forces
+        tau1 = -thruster_offset*f1y
+        tau2 =  thruster_offset*f2y
+        T = tau1 + tau2
+
+        return F0, F1, tau1, tau2, T
+
+
+@njit
+def _update_shit(T, I, av, angle, F0, F1, M, g0, g1, v0, v1, pos0, pos1, dt):
+        aa = T / I
+        av += aa * dt
+        angle += av * dt
+
+        # in-place (no new arrays)
+        a0 = F0 / M + g0
+        a1 = F1 / M + g1
+
+        v0 += a0 * dt
+        v1 += a1 * dt
+
+        pos0 += v0 * dt
+        pos1 += v1 * dt
+
+        return aa, av, angle, a0, a1, v0, v1, pos0, pos1
+
 
 class Drone:
     def __init__(self, pos, meters_to_pixels, surface_height, headless=False):
@@ -149,41 +216,34 @@ class Drone:
             self.t2_thrust = 0
 
     def calculate_forces(self):
-        # f1 rotation
-        f1x = -(self.t1_thrust * self.thruster_force) * math.sin(self.t1angle)
-        f1y =  (self.t1_thrust * self.thruster_force) * math.cos(self.t1angle)
+        # # f1 rotation
+        F0, F1, tau1, tau2, T = _calculate_forces_shit(
+            self.t1_thrust, self.t2_thrust, self.thruster_force,
+            self.t1angle, self.t2angle, self.angle, self.thruster_offset[0]
+        )
 
-        # f2 rotation
-        f2x = -(self.t2_thrust * self.thruster_force) * math.sin(self.t2angle)
-        f2y =  (self.t2_thrust * self.thruster_force) * math.cos(self.t2angle)
-
-        # combined force rotated by drone angle
-        cos_a = math.cos(self.angle)
-        sin_a = math.sin(self.angle)
-        self.F[0] = (f1x+f2x)*cos_a - (f1y+f2y)*sin_a
-        self.F[1] = (f1x+f2x)*sin_a + (f1y+f2y)*cos_a
-
-        # relative tourque forces
-        self.tau1 = -self.thruster_offset[0]*f1y
-        self.tau2 =  self.thruster_offset[0]*f2y
-        self.T = self.tau1 + self.tau2
+        self.F[0] = F0
+        self.F[1] = F1
+        self.tau1 = tau1
+        self.tau2 = tau2
+        self.T = T
 
     def update(self, dt):
         self.calculate_forces()
 
-        self.aa = self.T / self.I
-        self.av += self.aa * dt
-        self.angle += self.av * dt
+        aa, av, angle, a0, a1, v0, v1, pos0, pos1 = _update_shit(
+            self.T, self.I, self.av, self.angle, 
+            self.F[0], self.F[1], self.M, 
+            self.g[0], self.g[1], 
+            self.v[0], self.v[1], 
+            self.pos[0], self.pos[1], dt
+        )
 
-        # in-place (no new arrays)
-        self.a[0] = self.F[0] / self.M + self.g[0]
-        self.a[1] = self.F[1] / self.M + self.g[1]
+        self.aa, self.av, self.angle = aa, av, angle
+        self.a[0], self.a[1] = a0, a1
+        self.v[0], self.v[1] = v0, v1
+        self.pos[0], self.pos[1] = pos0, pos1
 
-        self.v[0] += self.a[0] * dt
-        self.v[1] += self.a[1] * dt
-
-        self.pos[0] += self.v[0] * dt
-        self.pos[1] += self.v[1] * dt
 
     def draw_body(self, screen, a=255):
         pos_pix = m_to_pixel_position(self.pos, self.surface_height, self.mtp)
@@ -242,7 +302,7 @@ class Ai_Drone(Drone):
         super().__init__(pos, meters_to_pixels, surface_height, headless=headless)
 
         self.genome = genome
-        self.brain = NeatNN(genome)
+        self.brain = NeatNN_fast(genome)
         self.waypoint: np.ndarray = np.array(pos, dtype=float)
 
     def reset_state(self, pos):
@@ -250,39 +310,21 @@ class Ai_Drone(Drone):
         self.enabled = True
 
     def handle_input(self, keys, dt):
-        # reframe vectors to drone view
-        c = math.cos(self.angle)
-        s = math.sin(self.angle)
-
-        dworld = (self.waypoint[0] - self.pos[0], self.waypoint[1] - self.pos[1])
-        dxlocal = -dworld[0] * s + dworld[1] * c
-        dylocal =  dworld[0] * c + dworld[1] * s
-
-        vxlocal = -self.v[0] * s + self.v[1] * c
-        vylocal =  self.v[0] * c + self.v[1] * s
-
-        # pass data through brain
-        outputs = self.brain.forward(
-            delta_x = normalize(dxlocal),
-            delta_y = normalize(dylocal),
-            angle = self.angle,
-            vel_x = normalize(vxlocal),
-            vel_y = normalize(vylocal),
-            angular_vel = self.av,
-            t1_angle = self.t1angle,
-            t2_angle = self.t2angle
+        dxlocal, dylocal, vxlocal, vylocal = _nn_inputs(
+            self.waypoint[0], self.waypoint[1],
+            self.pos[0], self.pos[1],
+            self.v[0], self.v[1], self.angle
         )
 
-        t1turn, t2turn, t1throttle, t2throttle = outputs
+        t1turn, t2turn, t1throttle, t2throttle = self.brain.forward(
+            delta_x=dxlocal, delta_y=dylocal,
+            angle=self.angle, vel_x=vxlocal, vel_y=vylocal,
+            angular_vel=self.av, t1_angle=self.t1angle, t2_angle=self.t2angle
+        )
 
-        # set thruster angles
-        self.t1angle += t1turn * self.thruster_rotation_speed * dt
-        self.t2angle += t2turn * self.thruster_rotation_speed * dt
-
-        # limit angle
-        self.t1angle = min( max(self.t1angle, self.thruster_max_angle[0]), self.thruster_max_angle[1] )
-        self.t2angle = min( max(self.t2angle, self.thruster_max_angle[0]), self.thruster_max_angle[1] )
-
-        # set thruter throttles
-        self.t1_thrust = max(0, t1throttle)
-        self.t2_thrust = max(0, t2throttle)
+        self.t1angle, self.t2angle, self.t1_thrust, self.t2_thrust = _apply_outputs(
+            t1turn, t2turn, t1throttle, t2throttle,
+            self.t1angle, self.t2angle,
+            self.thruster_rotation_speed,
+            self.thruster_max_angle[0], self.thruster_max_angle[1], dt
+        )

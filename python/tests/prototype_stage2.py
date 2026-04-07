@@ -2,6 +2,7 @@ from drone_prototype import Ai_Drone
 from prototype_stage1 import HOVER_DIST, HOVER_VEL, FEATHER_K, BRAKE_ZONE
 import math
 import numpy as np
+from prototype_stage1 import math_shit
 
 # ── Constants ────────────────────────────────────────────────────────────────
 CAPTURE_RADIUS    = 0.5     # meters — touch-to-capture for non-dwell waypoints
@@ -25,7 +26,6 @@ def generate_chain(rng, origin, num_waypoints, min_dist, max_dist):
         chain.append(wp)
         prev = wp
     return chain
-
 
 # ── Stage 2: sequential waypoint acquisition (headless) ────────────────────
 def stage2_vmax_test(
@@ -111,28 +111,11 @@ def stage2_vmax_test(
 
             # ── Vector math ──────────────────────────────────────────
             p, v = drone.pos, drone.v
-            v_mag = math.hypot(v[0], v[1])
-
             target = chains[c_idx][wp_idx]
-            r = target - p
-            d = math.hypot(r[0], r[1])
-            u = r / (d + eps)
 
-            v_par   = float(np.dot(v, u))
-            safe_v  = math.sqrt(2 * max_a * d)
-            v_ratio = v_par / (safe_v + eps)
-
-            # ── vmax parabola (raw, no base_bonus scaling) ───────────
-            if v_ratio <= 1:
-                frame_vmax = dt * (1 - (v_ratio - 1) ** 2)
-            else:
-                frame_vmax = dt * (1 - 16 * (v_ratio - 1) ** 2)
-
-            # ── Feathering penalty (outside brake zone) ──────────────
-            if frame_vmax > 0 and d >= BRAKE_ZONE:
-                f1 = max(1 - FEATHER_K * abs(drone.t1_thrust - prev_t1[ix]), 0)
-                f2 = max(1 - FEATHER_K * abs(drone.t2_thrust - prev_t2[ix]), 0)
-                frame_vmax *= f1 * f2
+            v_mag, d, frame_vmax = math_shit(
+                p, v, target, eps, max_a, dt, limit, drone.t1_thrust, drone.t2_thrust, prev_t1[ix], prev_t2[ix]
+            ) # type: ignore
 
             vmax_scores[ix] = max(vmax_scores[ix] + frame_vmax, 0.0)
 
@@ -188,12 +171,12 @@ def stage2_vmax_test(
         time_elapsed += dt
 
     # ── Score aggregation ────────────────────────────────────────────────
-    vmax_norm = np.clip(vmax_scores / (limit + eps), 0, 1)
+    vmax_norm = np.clip(vmax_scores, 0, 1)
     drone_scores = vmax_norm + comp_scores  # range [0, 6.0]
 
     # Reshape to (C, N) and aggregate across chains
     per_chain = drone_scores.reshape(C, N)
-    genome_scores = 0.5 * per_chain.mean(axis=0) + 0.5 * per_chain.min(axis=0)
+    genome_scores = 0.7 * per_chain.mean(axis=0) + 0.3 * per_chain.min(axis=0)
 
     avg_completions = len(completed) / C
 

@@ -123,7 +123,7 @@ if __name__ == '__main__':
 
         # ── 50-gen stats buffer for discord ──
         LOG_INTERVAL = 50
-        SCORE_BINS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0]
+
         log_buf = {
             'max_scores': [],
             'avg_scores': [],
@@ -133,14 +133,15 @@ if __name__ == '__main__':
             'killed_genomes': 0,
             'connections': [],      # avg connections each gen
             'nodes': [],            # avg nodes each gen
-            'gen_times': [],        # seconds per gen
-            'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),  # cumulative histogram
+            'sim_times': [],         # sim seconds per gen
+            'breed_times': [],      # breed seconds per gen
+            'all_scores': [],       # raw scores per gen (for percentiles)
             'elite_ratios': [],     # best/mean fitness each gen
             'density_ratios': [],   # mean_nodes/mean_connections each gen
             'species_densities': [], # species_count/pop_size each gen
             'high_stag_ratios': [],  # species above 50% stagnation limit / total each gen
             'disabled_ratios': [],  # disabled_genes/total_genes each gen
-            'score_deltas': [],     # Δ best_fitness each gen
+
             'mut_power_means': [],  # mean mutation_power each gen
             'mut_power_stds': [],   # std mutation_power each gen
         }
@@ -241,7 +242,7 @@ if __name__ == '__main__':
                     )
 
             # time end
-            elapsed = time.time() - start
+            sim_time = time.time() - start
 
             if return_code:
                 break
@@ -309,6 +310,7 @@ if __name__ == '__main__':
 
             # breed next generation
             state.setdefault('species', [])
+            breed_start = time.time()
             if not return_code:
                 next_gen, species_pop, spec, deaths, cull_stats = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
                 state['current_gen'] = next_gen
@@ -320,6 +322,9 @@ if __name__ == '__main__':
                 deaths = 0
                 cull_stats = {'stagnant_killed': 0, 'killed_genomes': 0}
                 stagnant_count = 0
+
+            breed_time = time.time() - breed_start
+            elapsed = sim_time + breed_time
 
             # breed profiling
             if profile:
@@ -358,8 +363,6 @@ if __name__ == '__main__':
                 plateau_counter += 1
             avg_score = np.average(scores)
             pop_size = len(scores)
-            prev_max = state['historical_score'][-2] if len(state['historical_score']) >= 2 else max_score
-            score_delta = max_score - prev_max
 
             # ratios
             elite_ratio = max_score / avg_score if avg_score > 0 else float('nan')
@@ -384,8 +387,10 @@ if __name__ == '__main__':
             # per-species summary
             if species_pop:
                 largest_species = max(len(sp) for sp in species_pop)
-                top_species_fit = max(s.best_history[-1] for s in state['species'] if s.best_history) if state['species'] else 0
-                oldest_species = max(s.age for s in state['species']) if state['species'] else 0
+                top_species = max((s for s in state['species'] if s.best_history), key=lambda s: s.best_history[-1], default=None)
+                top_species_fit = top_species.best_history[-1] if top_species else 0
+                top_species_id = top_species.id if top_species else 0
+                oldest_species = max(state['species'], key=lambda s: s.age).id if state['species'] else 0
                 most_stagnant = max(s.stagnation for s in state['species']) if state['species'] else 0
                 # per-species mutation power
                 species_mut_powers = []
@@ -395,13 +400,12 @@ if __name__ == '__main__':
                 species_mut_min = min(species_mut_powers) if species_mut_powers else 0.0
                 species_mut_max = max(species_mut_powers) if species_mut_powers else 0.0
             else:
-                largest_species = top_species_fit = oldest_species = most_stagnant = 0
+                largest_species = top_species_fit = top_species_id = oldest_species = most_stagnant = 0
                 species_mut_min = species_mut_max = 0.0
 
             # log training stats to terminal
-            delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            score_line = f"  score      max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}"
+            score_line = f"  score      max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | plateau: {plateau_counter}"
             if stage == 2:
                 score_line += f" | val: {val_score:.4f}"
             print(score_line)
@@ -423,30 +427,32 @@ if __name__ == '__main__':
                 print(f"  waypoints  min: {wp_stats['min']:.1f} | Q1: {wp_stats['q1']:.1f} | Q3: {wp_stats['q3']:.1f} | max: {wp_stats['max']:.1f}")
                 print(f"  pool       gen {pool_gen}/{POOL_REFRESH_GENS} | avg_leg: {avg_leg_dist:.1f}m | avg_total: {avg_leg_dist * NUM_WAYPOINTS:.1f}m{pool_fresh}")
             pop = config['population']
-            print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
+            print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} (sp{top_species_id}) | oldest: sp{oldest_species}")
             print(f"  genome     avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
             print(f"  ratios     elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | high_stag: {high_stag_ratio:.2f}")
             print(f"  mut_power  mean: {mut_power_mean:.3f} | std: {mut_power_std*100/mut_power_mean:.2f}% | species range: [{species_mut_min:.2f}, {species_mut_max:.2f}]")
-            print(f"  timing     gen: {elapsed:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
+            p10, p25, p50, p75, p90 = np.percentile(scores, [10, 25, 50, 75, 90])
+            print(f"  scores     p10: {p10:.3f} | p25: {p25:.3f} | p50: {p50:.3f} | p75: {p75:.3f} | p90: {p90:.3f}")
+            print(f"  timing     sim: {sim_time:.2f}s | breed: {breed_time:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
 
             # ── accumulate stats into 50-gen buffer ──
             log_buf['max_scores'].append(max_score)
             log_buf['avg_scores'].append(avg_score)
             log_buf['connections'].append(average_connections)
             log_buf['nodes'].append(average_nodes)
-            log_buf['gen_times'].append(elapsed)
+            log_buf['sim_times'].append(sim_time)
+            log_buf['breed_times'].append(breed_time)
+            log_buf['all_scores'].extend(scores.tolist())
             log_buf['elite_ratios'].append(elite_ratio)
             log_buf['density_ratios'].append(density_ratio)
             log_buf['species_densities'].append(species_density)
             log_buf['high_stag_ratios'].append(high_stag_ratio)
             log_buf['disabled_ratios'].append(disabled_ratio)
-            log_buf['score_deltas'].append(score_delta)
+
             log_buf['mut_power_means'].append(mut_power_mean)
             log_buf['mut_power_stds'].append(mut_power_std)
             log_buf['stagnant_killed'] += cull_stats['stagnant_killed']
             log_buf['killed_genomes'] += cull_stats['killed_genomes']
-            # score distribution histogram
-            log_buf['score_hist'] += np.histogram(scores, bins=SCORE_BINS)[0]
             if stage >= 1:
                 assert isinstance(completions, list)
                 log_buf['comp_counts'].append(avg_completions)
@@ -498,18 +504,13 @@ if __name__ == '__main__':
                 if log_buf['stagnant_killed'] > 0:
                     stag_info += f"  stag_killed: {log_buf['stagnant_killed']} ({log_buf['killed_genomes']} genomes)"
                 lines.append(f"Species  {stag_info}")
-                lines.append(f"         largest: {largest_species}  top_fit: {top_species_fit:.1f}  oldest: {oldest_species}  most_stag: {most_stagnant}")
-
-                # score distribution
-                hist = log_buf['score_hist']
-                bin_labels = [f"{SCORE_BINS[i]}-{SCORE_BINS[i+1]}" for i in range(len(SCORE_BINS)-1)]
-                dist_parts = [f"{lbl}: {cnt}" for lbl, cnt in zip(bin_labels, hist)]
-                lines.append(f"ScoreDis {' | '.join(dist_parts)}")
+                lines.append(f"         largest: {largest_species}  top_fit: {top_species_fit:.1f} (sp{top_species_id})  oldest: sp{oldest_species}")
 
                 avg_conn = np.average(log_buf['connections'])
                 conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0
                 avg_nodes_buf = np.average(log_buf['nodes'])
-                avg_gt = np.average(log_buf['gen_times'])
+                avg_sim = np.average(log_buf['sim_times'])
+                avg_breed = np.average(log_buf['breed_times'])
 
                 # ratio aggregates over window
                 buf_elite    = np.nanmean(log_buf['elite_ratios'])
@@ -517,16 +518,19 @@ if __name__ == '__main__':
                 buf_spec_den = np.mean(log_buf['species_densities'])
                 buf_stagnant = np.mean(log_buf['high_stag_ratios'])
                 buf_disabled = np.mean(log_buf['disabled_ratios'])
-                buf_delta_gen = np.mean(log_buf['score_deltas'])
 
                 buf_mut_mean = np.mean(log_buf['mut_power_means'])
                 buf_mut_std = np.mean(log_buf['mut_power_stds'])
 
+                all_scores_buf = np.array(log_buf['all_scores'])
+                bp10, bp25, bp50, bp75, bp90 = np.percentile(all_scores_buf, [10, 25, 50, 75, 90])
+
                 lines += [
+                    f"ScoreDis p10: {bp10:.3f}  p25: {bp25:.3f}  p50: {bp50:.3f}  p75: {bp75:.3f}  p90: {bp90:.3f}",
                     f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  avg_nodes: {avg_nodes_buf:.1f}  pop: {pop_size}",
                     f"MutPower mean: {buf_mut_mean:.3f}  std: {buf_mut_std*100/buf_mut_mean:.2f}%",
-                    f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  high_stag: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}  Δ/gen: {buf_delta_gen:+.1f}",
-                    f"Timing   avg: {avg_gt:.2f}s/gen  rate: {60/avg_gt:.1f}/min  elapsed: {elapsed_fmt}",
+                    f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  high_stag: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}",
+                    f"Timing   sim: {avg_sim:.2f}s  breed: {avg_breed:.2f}s  rate: {60/(avg_sim+avg_breed):.1f}/min  elapsed: {elapsed_fmt}",
                     f"```",
                 ]
 
@@ -543,14 +547,14 @@ if __name__ == '__main__':
                     'killed_genomes': 0,
                     'connections': [],
                     'nodes': [],
-                    'gen_times': [],
-                    'score_hist': np.zeros(len(SCORE_BINS) - 1, dtype=int),
+                    'sim_times': [],
+                    'breed_times': [],
+                    'all_scores': [],
                     'elite_ratios': [],
                     'density_ratios': [],
                     'species_densities': [],
                     'high_stag_ratios': [],
                     'disabled_ratios': [],
-                    'score_deltas': [],
                     'mut_power_means': [],
                     'mut_power_stds': [],
                 }
@@ -609,6 +613,14 @@ if __name__ == '__main__':
 
     except KeyboardInterrupt:
         print('Keyboard Interrupt')
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f'CRASH: {e}\n{tb}')
+        if logging:
+            discord_logger.log(f'{NAME}>> CRASH: {type(e).__name__}: {e}\n```{tb[-1500:]}```')
+            discord_logger.close()
+        raise
     finally:
         if pool is not None:
             pool.terminate()

@@ -14,9 +14,18 @@ checkpoint_dir = Path(__file__).parent.parent.parent / "data" / "checkpoints"
 save_path = checkpoint_dir / "prototype_save.pkl"
 def save(state: dict, filename: str = "prototype_save.pkl"):
     path = checkpoint_dir / filename
-    with open(path, 'wb') as f:
-        print(f'saving {filename}')
-        pickle.dump(state, f)
+    try:
+        with open(path, 'wb') as f:
+            print(f'saving {filename}')
+            pickle.dump(state, f)
+    except Exception as e:
+        import traceback
+        print(f'ERROR saving {filename}: {type(e).__name__}: {e}')
+        print(f'  path: {path}')
+        print(f'  path exists: {path.exists()}')
+        print(f'  dir exists: {path.parent.exists()}')
+        print(f'  state keys: {list(state.keys())}')
+        traceback.print_exc()
 
 def load(path=None):
     p = path or save_path
