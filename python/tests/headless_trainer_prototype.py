@@ -2,7 +2,7 @@ import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 from scoring_prototype import hover_scorer_headless
 from prototype_stage1 import stage1_vmax_test
-from prototype_stage2 import stage2_vmax_test, POOL_REFRESH_GENS
+from prototype_stage2 import stage2_vmax_test, POOL_REFRESH_GENS, NUM_WAYPOINTS
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
 from breeding_prototype import breed, STAGNATION_CHANCES, STAGNATION_LIMIT
@@ -401,7 +401,10 @@ if __name__ == '__main__':
             # log training stats to terminal
             delta_sign = "+" if score_delta >= 0 else ""
             print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            print(f"  score      max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}")
+            score_line = f"  score      max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | Δ: {delta_sign}{score_delta:.4f} | plateau: {plateau_counter}"
+            if stage == 2:
+                score_line += f" | val: {val_score:.4f}"
+            print(score_line)
             if stage == 0:
                 pct = max_score / target_score * 100 if target_score > 0 else 0
                 print(f"  progress   target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
@@ -418,7 +421,7 @@ if __name__ == '__main__':
                 pool_fresh = " [NEW POOL]" if pool_gen == 1 else ""
                 print(f"  progress   chains: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | limit: {limit}")
                 print(f"  waypoints  min: {wp_stats['min']:.1f} | Q1: {wp_stats['q1']:.1f} | Q3: {wp_stats['q3']:.1f} | max: {wp_stats['max']:.1f}")
-                print(f"  pool       gen {pool_gen}/{POOL_REFRESH_GENS} | avg_leg: {avg_leg_dist:.1f}m{pool_fresh}")
+                print(f"  pool       gen {pool_gen}/{POOL_REFRESH_GENS} | avg_leg: {avg_leg_dist:.1f}m | avg_total: {avg_leg_dist * NUM_WAYPOINTS:.1f}m{pool_fresh}")
             pop = config['population']
             print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} | oldest: {oldest_species} gens | most_stagnant: {most_stagnant} gens | target: {pop * spec_target_min:.0f} - {pop * spec_target_max:.0f}")
             print(f"  genome     avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
@@ -467,7 +470,7 @@ if __name__ == '__main__':
                     f"**{NAME} | S{stage} Gen {state['gen']}** ({n} gens)",
                     f"```",
                     f"Score    peak: {buf_max:.4f}  low: {buf_min:.4f}  avg_best: {buf_avg_max:.4f}  avg_pop: {buf_avg_avg:.4f}",
-                    f"         best_ever: {best_ever:.4f}  plateau: {plateau_counter}",
+                    f"         best_ever: {best_ever:.4f}  plateau: {plateau_counter}" + (f"  val: {val_score:.4f}" if stage == 2 else ""),
                 ]
                 if stage == 0:
                     lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
@@ -488,6 +491,7 @@ if __name__ == '__main__':
                     buf_max = np.mean(log_buf.get('wp_maxs', [0]))
                     lines.append(f"Chains   avg: {avg_comp:.1f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp:.1f}  avg_time: {avg_ct:.2f}s")
                     lines.append(f"Waypnts  min: {buf_min:.1f}  Q1: {buf_q1:.1f}  Q3: {buf_q3:.1f}  max: {buf_max:.1f}")
+                    lines.append(f"Pool     gen {pool_gen}/{POOL_REFRESH_GENS}  avg_leg: {avg_leg_dist:.1f}m  avg_total: {avg_leg_dist * NUM_WAYPOINTS:.1f}m")
 
                 # species & stagnation over window
                 stag_info = f"now: {len(species_pop)}"

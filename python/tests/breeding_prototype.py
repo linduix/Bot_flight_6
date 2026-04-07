@@ -192,8 +192,8 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     # sort and cull species
     for i, s in enumerate(species_pop):
         s.sort(key=lambda g: genome_scores[g], reverse=True)
-        # update representative to best genome in species
-        species[i].rep = s[0]
+        # update representative to random member
+        species[i].rep = random.choice(s)
         # cull the worst half of the species
         species_pop[i] = s[:max(1, len(s)//2)]
 
