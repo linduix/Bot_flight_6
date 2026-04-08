@@ -116,7 +116,7 @@ class NeatNN:
 
         return cur[nodeix[9]], cur[nodeix[10]], cur[nodeix[11]], cur[nodeix[12]]
 
-@njit
+@njit(cache=True)
 def _forward_loop(
     node_order, connection_start, connection_end,
     src, weight, recur,
