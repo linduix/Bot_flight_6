@@ -5,7 +5,7 @@ from prototype_stage1 import stage1_vmax_test
 from prototype_stage2 import stage2_vmax_test, POOL_REFRESH_GENS, NUM_WAYPOINTS
 from mutation_prototype import Innovations, add_connection
 from genome_prototype import Genome, NodeType
-from breeding_prototype import breed, STAGNATION_CHANCES, STAGNATION_LIMIT
+from breeding_prototype import breed, breed_pareto, STAGNATION_CHANCES, STAGNATION_LIMIT
 from dotenv import load_dotenv
 import util_prototype as utils
 import numpy as np
@@ -16,6 +16,8 @@ import pstats
 import math
 import io
 import requests
+
+BREED_MODE = "pareto"  # "pareto" or "neat"
 
 config = {
     "population": 300,
@@ -123,28 +125,7 @@ if __name__ == '__main__':
 
         # ── 50-gen stats buffer for discord ──
         LOG_INTERVAL = 50
-
-        log_buf = {
-            'max_scores': [],
-            'avg_scores': [],
-            'comp_counts': [],      # number of completions each gen
-            'comp_times': [],       # individual completion times (flat)
-            'stagnant_killed': 0,
-            'killed_genomes': 0,
-            'connections': [],      # avg connections each gen
-            'nodes': [],            # avg nodes each gen
-            'sim_times': [],         # sim seconds per gen
-            'breed_times': [],      # breed seconds per gen
-            'all_scores': [],       # raw scores per gen (for percentiles)
-            'elite_ratios': [],     # best/mean fitness each gen
-            'density_ratios': [],   # mean_nodes/mean_connections each gen
-            'species_densities': [], # species_count/pop_size each gen
-            'high_stag_ratios': [],  # species above 50% stagnation limit / total each gen
-            'disabled_ratios': [],  # disabled_genes/total_genes each gen
-
-            'mut_power_means': [],  # mean mutation_power each gen
-            'mut_power_stds': [],   # std mutation_power each gen
-        }
+        log_buf = utils.pareto_log_buf() if BREED_MODE == "pareto" else utils.neat_log_buf()
 
         # threshold stuff
         spec_target_max = 0.3
@@ -205,9 +186,9 @@ if __name__ == '__main__':
                 iterations = 0
                 # Pool refresh: same seed for POOL_REFRESH_GENS, then rotate
                 if 'pool_seed' not in state or state.get('pool_gen', 0) >= POOL_REFRESH_GENS:
-                    val_seed = state.get('validation_seed', 42)
+                    val_seeds = set(range(11))  # validation uses seeds 0-10
                     new_seed = int(np.random.randint(0, 2**31))
-                    while new_seed == val_seed:
+                    while new_seed in val_seeds:
                         new_seed = int(np.random.randint(0, 2**31))
                     state['pool_seed'] = new_seed
                     state['pool_gen'] = 0
@@ -257,40 +238,12 @@ if __name__ == '__main__':
             # log score history
             state.setdefault('historical_score', [])
             state['historical_score'].append(max_score)
-            # get past 10 rolling average
-            rolling_average = np.average(state['historical_score'][-10:])
-            # calculate improvement from roling average change
-            improvement = rolling_average - np.average(state['historical_score'][-20:-10]) if len(state['historical_score']) > 20 else 0
 
-            # get average connections, nodes, and disabled-gene ratio
-            connections = []
-            nodes_counts = []
-            disabled_counts = []
-            total_gene_counts = []
-            for g in state['current_gen']:
-                enabled_sum = 0
-                disabled_sum = 0
-                for c in g.connections:
-                    if c.enabled:
-                        enabled_sum += 1
-                    else:
-                        disabled_sum += 1
-                connections.append(enabled_sum)
-                nodes_counts.append(len(g.nodes))
-                disabled_counts.append(disabled_sum)
-                total_gene_counts.append(enabled_sum + disabled_sum)
-            average_connections = np.average(connections)
-            average_nodes = np.average(nodes_counts)
-            avg_total_genes = np.average(total_gene_counts)
-            avg_disabled = np.average(disabled_counts)
-            disabled_ratio = avg_disabled / avg_total_genes if avg_total_genes > 0 else 0.0
-
-            # mutation power stats
-            mut_powers = [g.mutation_power for g in state['current_gen']]
-            mut_power_mean = np.mean(mut_powers)
-            mut_power_std = np.std(mut_powers)
+            # genome stats
+            gs = utils.compute_genome_stats(state['current_gen'])
 
             # record best drone
+            prev_best_drone = state.get('best_drone')
             ix = np.argsort(scores)[-1]
             state['best_drone'] = state['current_gen'][ix]
 
@@ -304,24 +257,28 @@ if __name__ == '__main__':
             # so the new pool's score scale doesn't cause false stagnation.
             # Stagnation counters reset to 0 naturally (best_score = -inf → improved).
             # Pool lasts 100 gens vs 25 gen stagnation limit, so bad species still die.
-            if stage == 2 and state.get('pool_baseline_pending', False):
-                for s in state.get('species', []):
-                    s.best_score = -np.inf
-
-            # breed next generation
-            state.setdefault('species', [])
             breed_start = time.time()
-            if not return_code:
-                next_gen, species_pop, spec, deaths, cull_stats = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
+            if BREED_MODE == "pareto":
+                best_genome = state['best_drone']
+                next_gen, pareto_stats = breed_pareto(state['current_gen'], scores, state['innovations'], config["population"], best_genome)
                 state['current_gen'] = next_gen
                 state['gen'] += 1
-                state['species'] = spec
-                stagnant_count = sum(1 for s in spec if s.stagnation > STAGNATION_LIMIT // 2)
             else:
-                species_pop = []
-                deaths = 0
-                cull_stats = {'stagnant_killed': 0, 'killed_genomes': 0}
-                stagnant_count = 0
+                if stage == 2 and state.get('pool_baseline_pending', False):
+                    for s in state.get('species', []):
+                        s.best_score = -np.inf
+                state.setdefault('species', [])
+                if not return_code:
+                    next_gen, species_pop, spec, deaths, cull_stats = breed(state['current_gen'], scores, state['innovations'], config["population"], state['species'], threshold=state["threshold"])
+                    state['current_gen'] = next_gen
+                    state['gen'] += 1
+                    state['species'] = spec
+                    stagnant_count = sum(1 for s in spec if s.stagnation > STAGNATION_LIMIT // 2)
+                else:
+                    species_pop = []
+                    deaths = 0
+                    cull_stats = {'stagnant_killed': 0, 'killed_genomes': 0}
+                    stagnant_count = 0
 
             breed_time = time.time() - breed_start
             elapsed = sim_time + breed_time
@@ -333,21 +290,22 @@ if __name__ == '__main__':
                 print("wrote breed0.prof")
                 profile = False
 
-            # compute stats for logging
+            # track best & plateau
             if stage == 2 and state.get('pool_baseline_pending', False):
                 state['pool_baseline_pending'] = False
             if stage == 2:
-                # Fixed-seed validation for objective best drone comparison
-                state.setdefault('validation_seed', 42)
                 state.setdefault('best_validation_score', 0.0)
                 ix_best = int(np.argsort(scores)[-1])
                 best_genome = state['current_gen'][ix_best]
-                _, val_scores, *_ = stage2_vmax_test(
-                    [best_genome], config["width"], config["height"],
-                    config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
-                    seed=state['validation_seed'],
-                )
-                val_score = float(val_scores[0])
+                val_total = 0.0
+                for vs in range(11):  # validate across seeds 0-10
+                    _, vs_scores, *_ = stage2_vmax_test(
+                        [best_genome], config["width"], config["height"],
+                        config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                        seed=vs,
+                    )
+                    val_total += float(vs_scores[0])
+                val_score = val_total / 11
                 if val_score > state['best_validation_score']:
                     state['best_validation_score'] = val_score
                     plateau_counter = 0
@@ -355,219 +313,145 @@ if __name__ == '__main__':
                 else:
                     plateau_counter += 1
                 best_ever = state['best_validation_score']
-            elif max_score > best_ever:
+            elif stage == 1:
+                if max_score > best_ever:
+                    # Score beaten — pit candidate against current best
+                    candidate = state['best_drone']
+                    if prev_best_drone is not None:
+                        _, val_scores, *_ = stage1_vmax_test(
+                            [candidate, prev_best_drone],
+                            config["width"], config["height"],
+                            config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                        )
+                        if val_scores[0] > val_scores[1]:
+                            best_ever = max_score
+                            plateau_counter = 0
+                            utils.save(state, "prototype_best.pkl")
+                            print(f'  VAL PASS  candidate {val_scores[0]:.4f} > best {val_scores[1]:.4f}')
+                        else:
+                            plateau_counter += 1
+                            print(f'  VAL FAIL  candidate {val_scores[0]:.4f} <= best {val_scores[1]:.4f}')
+                    else:
+                        best_ever = max_score
+                        plateau_counter = 0
+                        utils.save(state, "prototype_best.pkl")
+                else:
+                    plateau_counter += 1
+            elif max_score > best_ever:  # stage 0
                 best_ever = max_score
                 plateau_counter = 0
                 utils.save(state, "prototype_best.pkl")
             else:
                 plateau_counter += 1
+
             avg_score = np.average(scores)
             pop_size = len(scores)
+            elapsed_fmt = utils.format_elapsed(time.time() - training_start)
 
-            # ratios
-            elite_ratio = max_score / avg_score if avg_score > 0 else float('nan')
-            density_ratio = average_nodes / average_connections if average_connections > 0 else float('nan')
-            species_density = len(species_pop) / pop_size if pop_size > 0 else 0.0
-            high_stag_ratio = stagnant_count / len(species_pop) if species_pop else 0.0
-            total_elapsed = time.time() - training_start
-            gen_rate = 60 / elapsed if elapsed > 0 else 0
-            # format total elapsed
-            t_hrs, t_rem = divmod(total_elapsed, 3600)
-            t_min, t_sec = divmod(t_rem, 60)
-            if t_hrs > 0:
-                elapsed_fmt = f"{int(t_hrs)}h {int(t_min)}m"
-            else:
-                elapsed_fmt = f"{int(t_min)}m {int(t_sec)}s"
-
-            # species line
-            species_info = f"count: {len(species_pop)}"
-            if cull_stats['stagnant_killed'] > 0:
-                species_info += f" | stagnant killed: {cull_stats['stagnant_killed']}"
-
-            # per-species summary
-            if species_pop:
-                largest_species = max(len(sp) for sp in species_pop)
-                top_species = max((s for s in state['species'] if s.best_history), key=lambda s: s.best_history[-1], default=None)
-                top_species_fit = top_species.best_history[-1] if top_species else 0
-                top_species_id = top_species.id if top_species else 0
-                oldest_species = max(state['species'], key=lambda s: s.age).id if state['species'] else 0
-                most_stagnant = max(s.stagnation for s in state['species']) if state['species'] else 0
-                # per-species mutation power
-                species_mut_powers = []
-                for sp in species_pop:
-                    if sp:
-                        species_mut_powers.append(np.mean([g.mutation_power for g in sp]))
-                species_mut_min = min(species_mut_powers) if species_mut_powers else 0.0
-                species_mut_max = max(species_mut_powers) if species_mut_powers else 0.0
-            else:
-                largest_species = top_species_fit = top_species_id = oldest_species = most_stagnant = 0
-                species_mut_min = species_mut_max = 0.0
-
-            # log training stats to terminal
-            print(f"── S{stage} Gen {state['gen']} {'─' * 50}")
-            score_line = f"  score      max: {max_score:.4f} | avg: {avg_score:.4f} | best ever: {best_ever:.4f} | plateau: {plateau_counter}"
-            if stage == 2:
-                score_line += f" | val: {val_score:.4f}"
-            print(score_line)
+            # stage-specific kwargs shared by terminal, accumulate, and discord
+            stage_kw = {}
             if stage == 0:
-                pct = max_score / target_score * 100 if target_score > 0 else 0
-                print(f"  progress   target: {target_score:.0f} ({pct:.1f}%) | limit: {limit}s")
+                stage_kw['target_score'] = target_score
+                stage_kw['limit'] = limit
             elif stage == 1:
-                assert isinstance(completions, list)
-                c_time = np.average(completions) if completions else float("nan")
-                comp_pct = avg_completions / pop_size * 100
-                print(f"  progress   complete: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | difficulty: {state['difficulty']:.2f}m | limit: {limit}")
+                stage_kw.update(completions=completions, avg_completions=avg_completions,
+                               difficulty=state['difficulty'], limit=limit)
             elif stage == 2:
-                assert isinstance(completions, list)
-                c_time = np.average(completions) if completions else float("nan")
-                comp_pct = avg_completions / pop_size * 100
-                pool_gen = state.get('pool_gen', 0)
-                pool_fresh = " [NEW POOL]" if pool_gen == 1 else ""
-                print(f"  progress   chains: {avg_completions:.1f}/{pop_size} ({comp_pct:.1f}%) | avg c_time: {c_time:.2f}s | limit: {limit}")
-                print(f"  waypoints  min: {wp_stats['min']:.1f} | Q1: {wp_stats['q1']:.1f} | Q3: {wp_stats['q3']:.1f} | max: {wp_stats['max']:.1f}")
-                print(f"  pool       gen {pool_gen}/{POOL_REFRESH_GENS} | avg_leg: {avg_leg_dist:.1f}m | avg_total: {avg_leg_dist * NUM_WAYPOINTS:.1f}m{pool_fresh}")
-            pop = config['population']
-            print(f"  species    {species_info} | largest: {largest_species} | top_fit: {top_species_fit:.1f} (sp{top_species_id}) | oldest: sp{oldest_species}")
-            print(f"  genome     avg connections: {average_connections:.1f} | avg nodes: {average_nodes:.1f} | disabled: {disabled_ratio:.2%} | pop: {pop_size}")
-            print(f"  ratios     elite: {elite_ratio:.2f} | density: {density_ratio:.2f} | spec_den: {species_density:.3f} | high_stag: {high_stag_ratio:.2f}")
-            print(f"  mut_power  mean: {mut_power_mean:.3f} | std: {mut_power_std*100/mut_power_mean:.2f}% | species range: [{species_mut_min:.2f}, {species_mut_max:.2f}]")
-            p10, p25, p50, p75, p90 = np.percentile(scores, [10, 25, 50, 75, 90])
-            print(f"  scores     p10: {p10:.3f} | p25: {p25:.3f} | p50: {p50:.3f} | p75: {p75:.3f} | p90: {p90:.3f}")
-            print(f"  timing     sim: {sim_time:.2f}s | breed: {breed_time:.2f}s | rate: {gen_rate:.1f} gen/min | elapsed: {elapsed_fmt}")
+                stage_kw.update(completions=completions, avg_completions=avg_completions,
+                               difficulty=state['difficulty'], limit=limit,
+                               wp_stats=wp_stats, pool_gen=state.get('pool_gen', 0),
+                               pool_refresh=POOL_REFRESH_GENS,
+                               avg_leg_dist=avg_leg_dist, num_wp=NUM_WAYPOINTS)
 
-            # ── accumulate stats into 50-gen buffer ──
-            log_buf['max_scores'].append(max_score)
-            log_buf['avg_scores'].append(avg_score)
-            log_buf['connections'].append(average_connections)
-            log_buf['nodes'].append(average_nodes)
-            log_buf['sim_times'].append(sim_time)
-            log_buf['breed_times'].append(breed_time)
-            log_buf['all_scores'].extend(scores.tolist())
-            log_buf['elite_ratios'].append(elite_ratio)
-            log_buf['density_ratios'].append(density_ratio)
-            log_buf['species_densities'].append(species_density)
-            log_buf['high_stag_ratios'].append(high_stag_ratio)
-            log_buf['disabled_ratios'].append(disabled_ratio)
+            if BREED_MODE == "pareto":
+                # terminal log
+                utils.pareto_log_terminal(
+                    state['gen'], stage, max_score, avg_score, best_ever, plateau_counter,
+                    pareto_stats, gs, scores, sim_time, breed_time,
+                    elapsed_fmt, pop_size,
+                    val_score=val_score if stage == 2 else None,
+                    **stage_kw,
+                )
 
-            log_buf['mut_power_means'].append(mut_power_mean)
-            log_buf['mut_power_stds'].append(mut_power_std)
-            log_buf['stagnant_killed'] += cull_stats['stagnant_killed']
-            log_buf['killed_genomes'] += cull_stats['killed_genomes']
-            if stage >= 1:
-                assert isinstance(completions, list)
-                log_buf['comp_counts'].append(avg_completions)
-                log_buf['comp_times'].extend(completions)
-            if stage == 2:
-                log_buf.setdefault('wp_mins', []).append(wp_stats['min'])
-                log_buf.setdefault('wp_q1s', []).append(wp_stats['q1'])
-                log_buf.setdefault('wp_q3s', []).append(wp_stats['q3'])
-                log_buf.setdefault('wp_maxs', []).append(wp_stats['max'])
+                # accumulate into 50-gen buffer
+                utils.pareto_accumulate_buf(
+                    log_buf, max_score, avg_score, gs, scores, sim_time, breed_time,
+                    pareto_stats, pop_size,
+                    stage=stage,
+                    completions=completions if stage >= 1 else None,
+                    avg_completions=avg_completions if stage >= 1 else None,
+                    wp_stats=wp_stats if stage == 2 else None,
+                )
 
-            # log to discord
-            if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
-                print('logging...')
-                n = len(log_buf['max_scores'])
-                buf_max = max(log_buf['max_scores'])
-                buf_min = min(log_buf['max_scores'])
-                buf_avg_max = np.average(log_buf['max_scores'])
-                buf_avg_avg = np.average(log_buf['avg_scores'])
+                # discord log on interval
+                if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
+                    print('logging...')
+                    msg = utils.pareto_log_discord(
+                        NAME, state['gen'], stage, log_buf, best_ever, plateau_counter,
+                        pop_size, elapsed_fmt,
+                        val_score=val_score if stage == 2 else None,
+                        difficulty=state.get('difficulty'),
+                        limit=limit,
+                        wp_stats=wp_stats if stage == 2 else None,
+                        pool_gen=state.get('pool_gen', 0) if stage == 2 else None,
+                        pool_refresh=POOL_REFRESH_GENS if stage == 2 else None,
+                        avg_leg_dist=avg_leg_dist if stage == 2 else None,
+                        num_wp=NUM_WAYPOINTS if stage == 2 else None,
+                    )
+                    discord_logger.log(msg)
+                    first = False
+                    log_buf = utils.pareto_log_buf()
+            else:
+                ss = utils.compute_species_stats(state['species'], species_pop, STAGNATION_LIMIT)
+                species_count = len(species_pop)
 
-                lines = [
-                    f"**{NAME} | S{stage} Gen {state['gen']}** ({n} gens)",
-                    f"```",
-                    f"Score    peak: {buf_max:.4f}  low: {buf_min:.4f}  avg_best: {buf_avg_max:.4f}  avg_pop: {buf_avg_avg:.4f}",
-                    f"         best_ever: {best_ever:.4f}  plateau: {plateau_counter}" + (f"  val: {val_score:.4f}" if stage == 2 else ""),
-                ]
-                if stage == 0:
-                    lines.append(f"Progress target: {target_score:.0f} ({pct:.1f}%)  improvement: {improvement:.1f}  limit: {limit}s")
-                elif stage == 1:
-                    avg_comp = np.average(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
-                    max_comp = max(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
-                    avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
-                    comp_rate = avg_comp / pop_size * 100
-                    lines.append(f"Complet  avg: {avg_comp:.1f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp:.1f}  avg_time: {avg_ct:.2f}s  diff: {state['difficulty']:.1f}m")
-                elif stage == 2:
-                    avg_comp = np.average(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
-                    max_comp = max(log_buf['comp_counts']) if log_buf['comp_counts'] else 0
-                    avg_ct = np.average(log_buf['comp_times']) if log_buf['comp_times'] else float('nan')
-                    comp_rate = avg_comp / pop_size * 100
-                    buf_min = np.mean(log_buf.get('wp_mins', [0]))
-                    buf_q1 = np.mean(log_buf.get('wp_q1s', [0]))
-                    buf_q3 = np.mean(log_buf.get('wp_q3s', [0]))
-                    buf_max = np.mean(log_buf.get('wp_maxs', [0]))
-                    lines.append(f"Chains   avg: {avg_comp:.1f}/{pop_size} ({comp_rate:.1f}%)  peak: {max_comp:.1f}  avg_time: {avg_ct:.2f}s")
-                    lines.append(f"Waypnts  min: {buf_min:.1f}  Q1: {buf_q1:.1f}  Q3: {buf_q3:.1f}  max: {buf_max:.1f}")
-                    lines.append(f"Pool     gen {pool_gen}/{POOL_REFRESH_GENS}  avg_leg: {avg_leg_dist:.1f}m  avg_total: {avg_leg_dist * NUM_WAYPOINTS:.1f}m")
+                # terminal log
+                utils.neat_log_terminal(
+                    state['gen'], stage, max_score, avg_score, best_ever, plateau_counter,
+                    gs, ss, species_count, cull_stats, scores, sim_time, breed_time,
+                    elapsed_fmt, pop_size,
+                    val_score=val_score if stage == 2 else None,
+                    **stage_kw,
+                )
 
-                # species & stagnation over window
-                stag_info = f"now: {len(species_pop)}"
-                if log_buf['stagnant_killed'] > 0:
-                    stag_info += f"  stag_killed: {log_buf['stagnant_killed']} ({log_buf['killed_genomes']} genomes)"
-                lines.append(f"Species  {stag_info}")
-                lines.append(f"         largest: {largest_species}  top_fit: {top_species_fit:.1f} (sp{top_species_id})  oldest: sp{oldest_species}")
+                # accumulate into 50-gen buffer
+                utils.neat_accumulate_buf(
+                    log_buf, max_score, avg_score, gs, scores, sim_time, breed_time,
+                    cull_stats, species_count, pop_size, ss,
+                    stage=stage,
+                    completions=completions if stage >= 1 else None,
+                    avg_completions=avg_completions if stage >= 1 else None,
+                    wp_stats=wp_stats if stage == 2 else None,
+                )
 
-                avg_conn = np.average(log_buf['connections'])
-                conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0
-                avg_nodes_buf = np.average(log_buf['nodes'])
-                avg_sim = np.average(log_buf['sim_times'])
-                avg_breed = np.average(log_buf['breed_times'])
+                # discord log on interval
+                if (state['gen'] % LOG_INTERVAL == 0 or first) and logging:
+                    print('logging...')
+                    msg = utils.neat_log_discord(
+                        NAME, state['gen'], stage, log_buf, best_ever, plateau_counter,
+                        pop_size, elapsed_fmt, species_count, ss,
+                        val_score=val_score if stage == 2 else None,
+                        difficulty=state.get('difficulty'),
+                        limit=limit,
+                        wp_stats=wp_stats if stage == 2 else None,
+                        pool_gen=state.get('pool_gen', 0) if stage == 2 else None,
+                        pool_refresh=POOL_REFRESH_GENS if stage == 2 else None,
+                        avg_leg_dist=avg_leg_dist if stage == 2 else None,
+                        num_wp=NUM_WAYPOINTS if stage == 2 else None,
+                    )
+                    discord_logger.log(msg)
+                    first = False
+                    log_buf = utils.neat_log_buf()
 
-                # ratio aggregates over window
-                buf_elite    = np.nanmean(log_buf['elite_ratios'])
-                buf_density  = np.nanmean(log_buf['density_ratios'])
-                buf_spec_den = np.mean(log_buf['species_densities'])
-                buf_stagnant = np.mean(log_buf['high_stag_ratios'])
-                buf_disabled = np.mean(log_buf['disabled_ratios'])
-
-                buf_mut_mean = np.mean(log_buf['mut_power_means'])
-                buf_mut_std = np.mean(log_buf['mut_power_stds'])
-
-                all_scores_buf = np.array(log_buf['all_scores'])
-                bp10, bp25, bp50, bp75, bp90 = np.percentile(all_scores_buf, [10, 25, 50, 75, 90])
-
-                lines += [
-                    f"ScoreDis p10: {bp10:.3f}  p25: {bp25:.3f}  p50: {bp50:.3f}  p75: {bp75:.3f}  p90: {bp90:.3f}",
-                    f"Genome   avg_conn: {avg_conn:.1f} (Δ{conn_delta:+.1f})  avg_nodes: {avg_nodes_buf:.1f}  pop: {pop_size}",
-                    f"MutPower mean: {buf_mut_mean:.3f}  std: {buf_mut_std*100/buf_mut_mean:.2f}%",
-                    f"Ratios   elite: {buf_elite:.2f}  density: {buf_density:.2f}  spec_den: {buf_spec_den:.3f}  high_stag: {buf_stagnant:.2f}  disabled: {buf_disabled:.2%}",
-                    f"Timing   sim: {avg_sim:.2f}s  breed: {avg_breed:.2f}s  rate: {60/(avg_sim+avg_breed):.1f}/min  elapsed: {elapsed_fmt}",
-                    f"```",
-                ]
-
-                discord_logger.log("\n".join(lines))
-                first = False
-
-                # reset buffer
-                log_buf = {
-                    'max_scores': [],
-                    'avg_scores': [],
-                    'comp_counts': [],
-                    'comp_times': [],
-                    'stagnant_killed': 0,
-                    'killed_genomes': 0,
-                    'connections': [],
-                    'nodes': [],
-                    'sim_times': [],
-                    'breed_times': [],
-                    'all_scores': [],
-                    'elite_ratios': [],
-                    'density_ratios': [],
-                    'species_densities': [],
-                    'high_stag_ratios': [],
-                    'disabled_ratios': [],
-                    'mut_power_means': [],
-                    'mut_power_stds': [],
-                }
-
-            # adjust species thresholds
-            diversity_ratio = len(species_pop)/config['population']
-            avg_target = (spec_target_min+spec_target_max)/2
-            if diversity_ratio < avg_target:
-                diff = abs(diversity_ratio - avg_target)
-                state["threshold"] *= max(1 - (diff * 0.5), 0.1)
-            elif diversity_ratio > avg_target:
-                diff = abs(diversity_ratio - avg_target)
-                state["threshold"] *= 1 + (diff * 0.5)
+                # adjust species thresholds
+                diversity_ratio = len(species_pop)/config['population']
+                avg_target = (spec_target_min+spec_target_max)/2
+                if diversity_ratio < avg_target:
+                    diff = abs(diversity_ratio - avg_target)
+                    state["threshold"] *= max(1 - (diff * 0.5), 0.1)
+                elif diversity_ratio > avg_target:
+                    diff = abs(diversity_ratio - avg_target)
+                    state["threshold"] *= 1 + (diff * 0.5)
 
             # adjust unified difficulty
             if stage == 1:

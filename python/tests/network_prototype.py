@@ -3,6 +3,17 @@ import numpy as np
 import math
 from numba import njit
 
+# ── Activation config ───────────────────────────────────────────────────────
+# Options: "tanh", "sigmoid", "leaky_relu", "relu"
+HIDDEN_ACTIVATION = "softsign"
+TURN_ACTIVATION   = "softsign"   # outputs 9, 10 (thruster turns)
+THRUST_ACTIVATION = "softsign"   # outputs 11, 12 (throttle)
+
+_ACT_IDS = {"tanh": 0, "sigmoid": 1, "leaky_relu": 2, "relu": 3, "softsign": 4}
+_HIDDEN_ACT = _ACT_IDS[HIDDEN_ACTIVATION]
+_TURN_ACT   = _ACT_IDS[TURN_ACTIVATION]
+_THRUST_ACT = _ACT_IDS[THRUST_ACTIVATION]
+
 class NeatNN:
     def __init__(self, genome: Genome):
         self.genome = genome
@@ -109,7 +120,13 @@ class NeatNN:
                 value += weight * (prev[inputix] if recur else cur[inputix])
 
             # go through activation function
-            activation = tanh(value)
+            if node == 11 or node == 12:
+                act_id = _THRUST_ACT
+            elif node == 9 or node == 10:
+                act_id = _TURN_ACT
+            else:
+                act_id = _HIDDEN_ACT
+            activation = _activate(value, act_id)
 
             # write to current value
             cur[ix] = activation
@@ -117,10 +134,24 @@ class NeatNN:
         return cur[nodeix[9]], cur[nodeix[10]], cur[nodeix[11]], cur[nodeix[12]]
 
 @njit(cache=True)
+def _activate(value, act_id):
+    if act_id == 0:    # tanh
+        return math.tanh(value)
+    elif act_id == 1:  # sigmoid
+        return 1.0 / (1.0 + math.exp(-value))
+    elif act_id == 2:  # leaky_relu
+        return value if value > 0 else 0.01 * value
+    elif act_id == 3:  # relu
+        return max(0.0, value)
+    else:              # softsign
+        return value / (1.0 + abs(value))
+
+@njit(cache=True)
 def _forward_loop(
     node_order, connection_start, connection_end,
     src, weight, recur,
-    prev, cur
+    prev, cur,
+    hidden_act, turn_act, thrust_act
 ):
     for node_ix, node in enumerate(node_order):
         # skip input nodes
@@ -136,7 +167,12 @@ def _forward_loop(
             value += weight[conn_ix] * node_value
 
         # go through activation function
-        activation = math.tanh(value)
+        if node == 11 or node == 12:
+            activation = _activate(value, thrust_act)
+        elif node == 9 or node == 10:
+            activation = _activate(value, turn_act)
+        else:
+            activation = _activate(value, hidden_act)
 
         # write to current value
         cur[node_ix] = activation
@@ -259,7 +295,8 @@ class NeatNN_fast:
         _forward_loop(
             self.node_order, self.connection_start, self.connection_end,
             self.src, self.weight, self.recur,
-            prev, cur
+            prev, cur,
+            _HIDDEN_ACT, _TURN_ACT, _THRUST_ACT
         )
 
         return cur[nodeix[9]], cur[nodeix[10]], cur[nodeix[11]], cur[nodeix[12]]

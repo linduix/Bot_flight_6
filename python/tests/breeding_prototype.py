@@ -168,13 +168,14 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
     raw_scores = list(scores)
     adjusted_scores = [0.0] * len(raw_scores)
 
-    # penalize score for too much complexity
+    # penalize score for too much complexity (disabled)
     ix = 0
     for score, g in zip(raw_scores, current_gen):
-        edges = sum([1 for c in g.connections if c.enabled])
-        nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
-        excess = max(0, edges - 50) + max(0, nodes - 13) * 2
-        adjusted_scores[ix] = score / (1 + 0.005 * excess)
+        # edges = sum([1 for c in g.connections if c.enabled])
+        # nodes = sum([1 for n in g.nodes if n.node_type == NodeType.HIDDEN])
+        # excess = max(0, edges - 50) + max(0, nodes - 13) * 2
+        # adjusted_scores[ix] = score / (1 + 0.005 * excess)
+        adjusted_scores[ix] = score
         ix += 1
 
     min_score = min(adjusted_scores)
@@ -373,3 +374,154 @@ def breed(current_gen: list[Genome], scores: list[float] | np.ndarray, innovatio
 
 
     return next_gen, species_pop, species, deaths, cull_stats
+
+
+def _pareto_fronts(x_vals, y_vals):
+    """Peel successive Pareto fronts (maximise both objectives)."""
+    n = len(x_vals)
+    remaining = np.ones(n, dtype=bool)
+    fronts = []
+    while remaining.any():
+        rx, ry = x_vals[remaining], y_vals[remaining]
+        local_mask = np.zeros(len(rx), dtype=bool)
+        order = np.lexsort((-ry, -rx))
+        best_y = -np.inf
+        for idx in order:
+            if ry[idx] >= best_y:
+                local_mask[idx] = True
+                best_y = ry[idx]
+        global_mask = np.zeros(n, dtype=bool)
+        rem_indices = np.where(remaining)[0]
+        global_mask[rem_indices[local_mask]] = True
+        fronts.append(global_mask)
+        remaining &= ~global_mask
+    return fronts
+
+
+def _crowding_distance(indices, obj_dists, adj_scores):
+    """Crowding distance for a set of indices across two objectives."""
+    k = len(indices)
+    if k <= 2:
+        return {i: float('inf') for i in indices}
+
+    crowd = {i: 0.0 for i in indices}
+
+    for vals in (obj_dists, adj_scores):
+        order = sorted(indices, key=lambda i: vals[i])
+        crowd[order[0]] = float('inf')
+        crowd[order[-1]] = float('inf')
+        span = vals[order[-1]] - vals[order[0]]
+        if span > 0:
+            for j in range(1, k - 1):
+                crowd[order[j]] += (vals[order[j + 1]] - vals[order[j - 1]]) / span
+
+    return crowd
+
+
+def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
+                 innovations: Innovations, population_size: int,
+                 best_genome: Genome):
+    """
+    (μ+λ) NSGA-II-style breed for NEAT.
+
+    Input:  combined pool (parents + offspring from last round), all freshly scored.
+            First call: just the initial population.
+    Output: N genomes: top N/2 survivors via Pareto selection + N/2 offspring.
+            Caller scores all N together, then feeds them back next round.
+    """
+    raw_scores = np.array(scores, dtype=float)
+    n = len(pool)
+    half = population_size // 2
+
+    # ── Complexity-adjusted scores (disabled) ──
+    adj_scores = np.zeros(n)
+    for ix, g in enumerate(pool):
+        # edges = sum(1 for c in g.connections if c.enabled)
+        # nodes = sum(1 for nd in g.nodes if nd.node_type == NodeType.HIDDEN)
+        # excess = max(0, edges - 50) + max(0, nodes - 13) * 2
+        # adj_scores[ix] = raw_scores[ix] / (1 + 0.005 * excess)
+        adj_scores[ix] = raw_scores[ix]
+
+    # ── Genetic distance from best ──
+    obj_dists = np.zeros(n)
+    for i, g in enumerate(pool):
+        # try:
+        obj_dists[i] = distance(g, best_genome)
+        # except ValueError:
+        #     # genome has no connections — maximally penalise so it doesn't
+        #     # masquerade as a best-genome clone at distance 0
+        #     obj_dists[i] = -1.0
+
+    # ── Pareto rank the pool ──
+    fronts = _pareto_fronts(obj_dists, adj_scores)
+
+    # ── Select top half (survivors) front by front ──
+    survivors: list[Genome] = []
+    for mask in fronts:
+        indices = list(np.where(mask)[0])
+        if len(survivors) + len(indices) <= half:
+            for i in indices:
+                survivors.append(pool[i])
+        else:
+            # partial front — pick by crowding distance (most spread out first)
+            crowd = _crowding_distance(indices, obj_dists, adj_scores)
+            indices.sort(key=lambda i: -crowd[i])
+            for i in indices:
+                if len(survivors) >= half:
+                    break
+                survivors.append(pool[i])
+            break
+
+    # ── Build lookups for tournament on survivors ──
+    genome_front = {}
+    genome_crowd = {}
+    for i, g in enumerate(pool):
+        genome_front[g] = len(fronts)
+    for rank, mask in enumerate(fronts):
+        indices = list(np.where(mask)[0])
+        crowd = _crowding_distance(indices, obj_dists, adj_scores)
+        for i in indices:
+            genome_front[pool[i]] = rank
+            genome_crowd[pool[i]] = crowd[i]
+
+    raw_genome_scores = {g: s for g, s in zip(pool, raw_scores)}
+
+    def tournament(k=3):
+        candidates = random.sample(survivors, min(k, len(survivors)))
+        # lower front wins; tiebreak: higher crowding distance (more spread out)
+        candidates.sort(key=lambda g: (genome_front[g], -genome_crowd[g]))
+        return candidates[0]
+
+    # ── Breed offspring to fill second half ──
+    offspring: list[Genome] = []
+    num_offspring = population_size - len(survivors)
+    while len(offspring) < num_offspring:
+        p1 = tournament()
+        p2 = tournament()
+        baby = crossover(p1, p2, raw_genome_scores[p1], raw_genome_scores[p2])
+        mutate(baby, innovations)
+        offspring.append(baby)
+
+    # ── Pareto stats ──
+    front_sizes = [int(mask.sum()) for mask in fronts]
+    best_idx = int(np.argmax(raw_scores))
+    survivor_indices = [i for i, g in enumerate(pool) if g in set(survivors)]
+    survivor_scores = raw_scores[survivor_indices] if survivor_indices else np.array([0.0])
+
+    pareto_stats = {
+        'num_fronts': len(fronts),
+        'front_sizes': front_sizes,                         # genomes per front
+        'f1_size': front_sizes[0] if front_sizes else 0,
+        'dist_mean': float(np.mean(obj_dists)),
+        'dist_std': float(np.std(obj_dists)),
+        'dist_max': float(np.max(obj_dists)),
+        'dist_min': float(np.min(obj_dists[obj_dists > 0])) if (obj_dists > 0).any() else 0.0,
+        'best_front': genome_front[pool[best_idx]],         # which front the top scorer is on
+        'best_dist': float(obj_dists[best_idx]),             # top scorer's distance from best genome
+        'survivor_mean': float(np.mean(survivor_scores)),
+        'survivor_max': float(np.max(survivor_scores)),
+        'penalty_mean': float(np.mean(raw_scores - adj_scores)),  # avg complexity penalty
+    }
+
+    # combined output: survivors + offspring, all need scoring next round
+    return survivors + offspring, pareto_stats

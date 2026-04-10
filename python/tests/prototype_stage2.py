@@ -9,6 +9,7 @@ CAPTURE_RADIUS    = 0.5     # meters — touch-to-capture for non-dwell waypoint
 NUM_WAYPOINTS     = 5
 NUM_CHAINS        = 4       # chains in pool, all tested every gen
 MIN_LEG_DIST      = 2.0     # meters — minimum distance between consecutive waypoints
+MAX_LEG_DIST      = None    # meters — max leg length cap (None = use difficulty)
 HOVER_DWELL_TIME  = 0.5     # seconds — hover requirement at the dwell waypoint
 POOL_REFRESH_GENS = 100     # regenerate chain pool every N generations
 
@@ -52,7 +53,8 @@ def stage2_vmax_test(
 
     # ── Seed-based chain generation (deterministic across MP chunks) ─────
     rng = np.random.default_rng(seed)
-    chains = [generate_chain(rng, center, W, MIN_LEG_DIST, diff) for _ in range(C)]
+    max_leg = min(diff, MAX_LEG_DIST) if MAX_LEG_DIST is not None else diff
+    chains = [generate_chain(rng, center, W, MIN_LEG_DIST, max_leg) for _ in range(C)]
     dwell_idx = [int(rng.integers(0, W)) for _ in range(C)]
 
     # Average leg distance across all chains
@@ -170,9 +172,32 @@ def stage2_vmax_test(
 
         time_elapsed += dt
 
+    # ── Partial credit for in-progress waypoint ─────────────────────────
+    # Mirrors the 1.0 * eff awarded per capture but scaled by proximity.
+    # Fills the gap between discrete capture plateaus so Pareto ranking
+    # can differentiate genomes that are partway through a leg.
+    for ix, drone in enumerate(drones):
+        if ix in completed:
+            continue
+        c_idx  = ix // N
+        wp_idx = current_wp[ix]
+        if wp_idx >= W:
+            continue
+        target   = chains[c_idx][wp_idx]
+        end_dist = np.linalg.norm(drone.pos - target)
+        ideal    = max(leg_dist_ideal[ix], eps)
+        actual   = max(leg_dist_actual[ix], ideal, eps)
+        progress = max(1.0 - end_dist / ideal, 0.0)
+        eff      = math.sqrt(ideal / actual)
+        comp_scores[ix] += progress * eff
+
     # ── Score aggregation ────────────────────────────────────────────────
+    # Normalise both components to [0,1] and blend 50/50 (matches stage 1).
+    # Without this, comp_scores dominates with discrete plateaus (0,1,2..5
+    # waypoints) that cluster genomes at the same score, bloating Pareto F1.
     vmax_norm = np.clip(vmax_scores, 0, 1)
-    drone_scores = vmax_norm + comp_scores  # range [0, 6.0]
+    comp_norm = comp_scores / (W + eps)  # theoretical max = W (perfect eff on every wp)
+    drone_scores = 0.5 * vmax_norm + 0.5 * np.clip(comp_norm, 0, 1)
 
     # Reshape to (C, N) and aggregate across chains
     per_chain = drone_scores.reshape(C, N)
