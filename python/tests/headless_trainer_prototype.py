@@ -462,7 +462,7 @@ if __name__ == '__main__':
                     state["threshold"] *= 1 + (diff * 0.5)
 
             # adjust unified difficulty
-            if stage == 1:
+            if stage in (1, 2):
                 assert isinstance(completions, list)
                 target_rate = 0.1
                 rate = avg_completions / config['population']
