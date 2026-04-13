@@ -398,24 +398,38 @@ def _pareto_fronts(x_vals, y_vals):
     return fronts
 
 
-def _crowding_distance(indices, obj_dists, adj_scores):
-    """Crowding distance for a set of indices across two objectives."""
-    k = len(indices)
-    if k <= 2:
+def _knn_diversity(indices, obj_dists, adj_scores):
+    """Average normalized distance to k-nearest neighbors (k = sqrt(n)).
+    Higher = more isolated = better for diversity preservation."""
+    n = len(indices)
+    if n <= 2:
         return {i: float('inf') for i in indices}
 
-    crowd = {i: 0.0 for i in indices}
+    k = max(1, int(n ** 0.5))
 
-    for vals in (obj_dists, adj_scores):
-        order = sorted(indices, key=lambda i: vals[i])
-        crowd[order[0]] = float('inf')
-        crowd[order[-1]] = float('inf')
-        span = vals[order[-1]] - vals[order[0]]
-        if span > 0:
-            for j in range(1, k - 1):
-                crowd[order[j]] += (vals[order[j + 1]] - vals[order[j - 1]]) / span
+    # normalize objectives to [0,1] so both axes contribute equally
+    dist_vals = np.array([obj_dists[i] for i in indices])
+    score_vals = np.array([adj_scores[i] for i in indices])
+    dist_span = dist_vals.max() - dist_vals.min()
+    score_span = score_vals.max() - score_vals.min()
+    dist_norm = (dist_vals - dist_vals.min()) / dist_span if dist_span > 0 else np.zeros(n)
+    score_norm = (score_vals - score_vals.min()) / score_span if score_span > 0 else np.zeros(n)
 
-    return crowd
+    # pairwise Euclidean distances in normalized 2D space
+    coords = np.column_stack((dist_norm, score_norm))
+    # diff[i,j] = coords[i] - coords[j]
+    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
+    pair_dists = np.sqrt((diff ** 2).sum(axis=2))
+
+    diversity = {}
+    for idx_local in range(n):
+        # sort distances, skip self (index 0 after sort = 0.0)
+        sorted_dists = np.sort(pair_dists[idx_local])
+        # average of k nearest (skip self at position 0)
+        knn_avg = sorted_dists[1:k + 1].mean()
+        diversity[indices[idx_local]] = float(knn_avg)
+
+    return diversity
 
 
 def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
@@ -463,12 +477,15 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
             for i in indices:
                 survivors.append(pool[i])
         else:
-            # partial front — pick by crowding distance (most spread out first)
-            crowd = _crowding_distance(indices, obj_dists, adj_scores)
-            indices.sort(key=lambda i: -crowd[i])
-            for i in indices:
-                if len(survivors) >= half:
-                    break
+            # partial front — iteratively remove lowest crowding distance
+            # (recompute CD after each removal for better Pareto spread)
+            need = half - len(survivors)
+            remaining = list(indices)
+            while len(remaining) > need:
+                crowd = _knn_diversity(remaining, obj_dists, adj_scores)
+                worst = min(remaining, key=lambda i: crowd[i])
+                remaining.remove(worst)
+            for i in remaining:
                 survivors.append(pool[i])
             break
 
@@ -479,7 +496,7 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
         genome_front[g] = len(fronts)
     for rank, mask in enumerate(fronts):
         indices = list(np.where(mask)[0])
-        crowd = _crowding_distance(indices, obj_dists, adj_scores)
+        crowd = _knn_diversity(indices, obj_dists, adj_scores)
         for i in indices:
             genome_front[pool[i]] = rank
             genome_crowd[pool[i]] = crowd[i]

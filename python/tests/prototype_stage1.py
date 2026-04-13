@@ -221,7 +221,7 @@ def stage1_vmax_test(
     dir_scores = np.zeros((D, N))
     for d_idx in range(D):
         dir_scores[d_idx] = scores[d_idx * N : (d_idx + 1) * N]
-    genome_scores = 0.7 * dir_scores.mean(axis=0) + 0.3 * dir_scores.min(axis=0)
+    genome_scores = 0.9 * dir_scores.mean(axis=0) + 0.1 * dir_scores.min(axis=0)
 
     # ── Difficulty scaling for cross-generation comparison ─────────────
     #   log(1+diff)/log(1+base) → 1.0× at 10m, grows with difficulty
