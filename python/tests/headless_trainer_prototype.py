@@ -297,15 +297,23 @@ if __name__ == '__main__':
                 state.setdefault('best_validation_score', 0.0)
                 ix_best = int(np.argsort(scores)[-1])
                 best_genome = state['current_gen'][ix_best]
-                val_total = 0.0
-                for vs in range(11):  # validate across seeds 0-10
-                    _, vs_scores, *_ = stage2_vmax_test(
-                        [best_genome], config["width"], config["height"],
-                        config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
-                        seed=vs,
-                    )
-                    val_total += float(vs_scores[0])
-                val_score = val_total / 11
+                if use_mp:
+                    val_results = pool.starmap(stage2_vmax_test, [
+                        ([best_genome], config["width"], config["height"],
+                         config["meters_to_pixels"], limit, state['difficulty'], vs)
+                        for vs in range(11)
+                    ])
+                    val_score = float(np.mean([r[1][0] for r in val_results]))
+                else:
+                    val_total = 0.0
+                    for vs in range(11):
+                        _, vs_scores, *_ = stage2_vmax_test(
+                            [best_genome], config["width"], config["height"],
+                            config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                            seed=vs,
+                        )
+                        val_total += float(vs_scores[0])
+                    val_score = val_total / 11
                 if val_score > state['best_validation_score']:
                     state['best_validation_score'] = val_score
                     plateau_counter = 0
@@ -487,6 +495,7 @@ if __name__ == '__main__':
                 state['historical_score'] = []
                 best_ever = 0
                 plateau_counter = 0
+                state['best_validation_score'] = 0.0
                 state['species'] = []
                 first = True
                 utils.save(state)

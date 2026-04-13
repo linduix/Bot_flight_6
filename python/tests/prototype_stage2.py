@@ -9,7 +9,7 @@ CAPTURE_RADIUS    = 0.5     # meters — touch-to-capture for non-dwell waypoint
 NUM_WAYPOINTS     = 5
 NUM_CHAINS        = 4       # chains in pool, all tested every gen
 MIN_LEG_DIST      = 2.0     # meters — minimum distance between consecutive waypoints
-MAX_LEG_DIST      = None    # meters — max leg length cap (None = use difficulty)
+REF_MAX_DIST      = 10.0    # meters — reference max leg for pattern generation (scaled to difficulty)
 HOVER_DWELL_TIME  = 0.5     # seconds — hover requirement at the dwell waypoint
 POOL_REFRESH_GENS = 100     # regenerate chain pool every N generations
 
@@ -27,6 +27,29 @@ def generate_chain(rng, origin, num_waypoints, min_dist, max_dist):
         chain.append(wp)
         prev = wp
     return chain
+
+
+def _scale_chain(chain, origin, target_total):
+    """Proportionally scale leg distances so chain total path length = target_total.
+    Preserves angles and relative leg proportions (same pattern, different size)."""
+    raw_total = 0.0
+    prev = origin
+    for wp in chain:
+        raw_total += np.linalg.norm(wp - prev)
+        prev = wp
+    if raw_total < 1e-8:
+        return chain
+    scale = target_total / raw_total
+    scaled = []
+    prev_raw = origin.copy()
+    prev_scaled = origin.copy()
+    for wp in chain:
+        delta = wp - prev_raw
+        new_pos = prev_scaled + delta * scale
+        scaled.append(new_pos)
+        prev_scaled = new_pos
+        prev_raw = wp
+    return scaled
 
 # ── Stage 2: sequential waypoint acquisition (headless) ────────────────────
 def stage2_vmax_test(
@@ -52,9 +75,11 @@ def stage2_vmax_test(
     ))
 
     # ── Seed-based chain generation (deterministic across MP chunks) ─────
+    # Generate at fixed reference scale so same seed = same pattern regardless
+    # of difficulty, then proportionally scale total chain length to match diff.
     rng = np.random.default_rng(seed)
-    max_leg = min(diff, MAX_LEG_DIST) if MAX_LEG_DIST is not None else diff
-    chains = [generate_chain(rng, center, W, MIN_LEG_DIST, max_leg) for _ in range(C)]
+    chains_raw = [generate_chain(rng, center, W, MIN_LEG_DIST, REF_MAX_DIST) for _ in range(C)]
+    chains = [_scale_chain(ch, center, diff) for ch in chains_raw]
     dwell_idx = [int(rng.integers(0, W)) for _ in range(C)]
 
     # Average leg distance across all chains

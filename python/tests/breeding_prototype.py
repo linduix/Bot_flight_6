@@ -520,24 +520,28 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
         offspring.append(baby)
 
     # ── Pareto stats ──
-    front_sizes = [int(mask.sum()) for mask in fronts]
-    best_idx = int(np.argmax(raw_scores))
-    survivor_indices = [i for i, g in enumerate(pool) if g in set(survivors)]
-    survivor_scores = raw_scores[survivor_indices] if survivor_indices else np.array([0.0])
+    f1_indices = np.where(fronts[0])[0] if fronts else np.array([], dtype=int)
+    f1_size = int(len(f1_indices))
+
+    # hypervolume of F1 (area dominated by non-dominated front, ref = origin)
+    if f1_size > 0:
+        f1_dists = obj_dists[f1_indices]
+        f1_scores = adj_scores[f1_indices]
+        order = np.argsort(f1_dists)
+        xsorted = f1_dists[order]
+        ysorted = f1_scores[order]
+        prev_x = 0.0
+        hv = 0.0
+        for xi, yi in zip(xsorted, ysorted):
+            hv += (xi - prev_x) * yi
+            prev_x = xi
+    else:
+        hv = 0.0
 
     pareto_stats = {
         'num_fronts': len(fronts),
-        'front_sizes': front_sizes,                         # genomes per front
-        'f1_size': front_sizes[0] if front_sizes else 0,
-        'dist_mean': float(np.mean(obj_dists)),
-        'dist_std': float(np.std(obj_dists)),
-        'dist_max': float(np.max(obj_dists)),
-        'dist_min': float(np.min(obj_dists[obj_dists > 0])) if (obj_dists > 0).any() else 0.0,
-        'best_front': genome_front[pool[best_idx]],         # which front the top scorer is on
-        'best_dist': float(obj_dists[best_idx]),             # top scorer's distance from best genome
-        'survivor_mean': float(np.mean(survivor_scores)),
-        'survivor_max': float(np.max(survivor_scores)),
-        'penalty_mean': float(np.mean(raw_scores - adj_scores)),  # avg complexity penalty
+        'f1_size': f1_size,
+        'hypervolume': hv,
     }
 
     # combined output: survivors + offspring, all need scoring next round
