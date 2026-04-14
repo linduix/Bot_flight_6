@@ -226,11 +226,11 @@ def disable_connection(genome: Genome):
 
 def mutate(genome, innovations: Innovations):
     # probabilities
-    add_connection_rate = .09
-    add_node_rate = .03
+    add_connection_rate = .15
+    add_node_rate = .05
     delete_node_rate = 0
-    reenable_connection_rate = .05
-    disable_connection_rate = .04
+    reenable_connection_rate = .08
+    disable_connection_rate = .06
 
     # self-adapt mutation power first, then use it for weight mutations
     mutate_mutation_power(genome)

@@ -66,9 +66,8 @@ def score_population(pop, state):
             pop, config['width'], config['height'],
             config['meters_to_pixels'], limit=limit, diff=difficulty)
     else:
-        drones = [Ai_Drone((0, 0), config['meters_to_pixels'], config['height'], g) for g in pop]
-        scores = hover_scorer_headless(
-            drones, config['width'], config['height'],
+        _, scores, *_ = hover_scorer_headless(
+            pop, config['width'], config['height'],
             config['meters_to_pixels'], limit=limit)
     return np.array(scores)
 

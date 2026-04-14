@@ -400,6 +400,14 @@ def pareto_log_buf():
         'num_fronts': [],
         'f1_sizes': [],
         'hypervolumes': [],
+        'f1_dist_spreads': [],
+        'f1_score_spreads': [],
+        'spacings': [],
+        'dist_means': [],
+        'dist_maxs': [],
+        'best_fronts': [],
+        'penalty_means': [],
+        'survivor_means': [],
     }
 
 
@@ -424,6 +432,14 @@ def pareto_accumulate_buf(log_buf, max_score, avg_score, gs, scores, sim_time, b
     log_buf['num_fronts'].append(pareto_stats['num_fronts'])
     log_buf['f1_sizes'].append(pareto_stats['f1_size'])
     log_buf['hypervolumes'].append(pareto_stats['hypervolume'])
+    log_buf['f1_dist_spreads'].append(pareto_stats['f1_dist_spread'])
+    log_buf['f1_score_spreads'].append(pareto_stats['f1_score_spread'])
+    log_buf['spacings'].append(pareto_stats['spacing'])
+    log_buf['dist_means'].append(pareto_stats['dist_mean'])
+    log_buf['dist_maxs'].append(pareto_stats['dist_max'])
+    log_buf['best_fronts'].append(pareto_stats['best_front'])
+    log_buf['penalty_means'].append(pareto_stats['penalty_mean'])
+    log_buf['survivor_means'].append(pareto_stats['survivor_mean'])
     if stage >= 1 and completions is not None:
         log_buf['comp_counts'].append(avg_completions)
         log_buf['comp_times'].extend(completions)
@@ -468,7 +484,9 @@ def pareto_log_terminal(gen, stage, max_score, avg_score, best_ever, plateau_cou
             print(f"  waypoints  min: {wp_stats['min']:.1f} | Q1: {wp_stats['q1']:.1f} | Q3: {wp_stats['q3']:.1f} | max: {wp_stats['max']:.1f}")
         print(f"  pool       gen {pool_gen}/{pool_refresh} | avg_leg: {avg_leg_dist:.1f}m | avg_total: {avg_leg_dist * num_wp:.1f}m{pool_fresh}")
 
-    print(f"  pareto     fronts: {ps['num_fronts']} | F1: {ps['f1_size']} | hypervolume: {ps['hypervolume']:.2f}")
+    print(f"  pareto     fronts: {ps['num_fronts']} | F1: {ps['f1_size']} | best@F{ps['best_front']+1} | HV: {ps['hypervolume']:.4f} | spacing: {ps['spacing']:.4f}")
+    print(f"  F1 spread  dist: {ps['f1_dist_spread']:.2f} | score: {ps['f1_score_spread']:.4f}")
+    print(f"  diversity  dist mean: {ps['dist_mean']:.2f} | max: {ps['dist_max']:.2f} | best_dist: {ps['best_dist']:.2f} | penalty: {ps['penalty_mean']:.4f}")
     print(f"  genome     avg connections: {gs['avg_connections']:.1f} | avg nodes: {gs['avg_nodes']:.1f} | disabled: {gs['disabled_ratio']:.2%} | pop: {pop_size}")
     mp_pct = gs['mut_power_std'] * 100 / gs['mut_power_mean'] if gs['mut_power_mean'] > 0 else 0
     print(f"  mut_power  mean: {gs['mut_power_mean']:.3f} | std: {mp_pct:.2f}%")
@@ -524,8 +542,17 @@ def pareto_log_discord(name, gen, stage, log_buf, best_ever, plateau_counter,
     avg_fronts = np.mean(log_buf['num_fronts'])
     avg_f1 = np.mean(log_buf['f1_sizes'])
     avg_hv = np.mean(log_buf['hypervolumes'])
-    hv_delta = log_buf['hypervolumes'][-1] - log_buf['hypervolumes'][0] if n > 1 else 0
-    lines.append(f"Pareto   fronts: {avg_fronts:.1f}  F1: {avg_f1:.1f}  hv: {avg_hv:.2f} (Δ{hv_delta:+.2f})")
+    avg_spacing = np.mean(log_buf['spacings'])
+    avg_f1_dist_spread = np.mean(log_buf['f1_dist_spreads'])
+    avg_f1_score_spread = np.mean(log_buf['f1_score_spreads'])
+    avg_dist = np.mean(log_buf['dist_means'])
+    max_dist = max(log_buf['dist_maxs'])
+    avg_penalty = np.mean(log_buf['penalty_means'])
+    best_front_mode = max(set(log_buf['best_fronts']), key=log_buf['best_fronts'].count)
+    avg_surv = np.mean(log_buf['survivor_means'])
+    lines.append(f"Pareto   fronts: {avg_fronts:.1f}  F1: {avg_f1:.1f}  best@F{best_front_mode+1}  HV: {avg_hv:.4f}  spacing: {avg_spacing:.4f}")
+    lines.append(f"F1spread dist: {avg_f1_dist_spread:.2f}  score: {avg_f1_score_spread:.4f}  surv_avg: {avg_surv:.3f}")
+    lines.append(f"Divrsty  dist_avg: {avg_dist:.2f}  dist_max: {max_dist:.2f}  penalty: {avg_penalty:.4f}")
 
     avg_conn = np.average(log_buf['connections'])
     conn_delta = log_buf['connections'][-1] - log_buf['connections'][0] if n > 1 else 0

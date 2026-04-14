@@ -398,43 +398,9 @@ def _pareto_fronts(x_vals, y_vals):
     return fronts
 
 
-def _knn_diversity(indices, obj_dists, adj_scores):
-    """Average normalized distance to k-nearest neighbors (k = sqrt(n)).
-    Higher = more isolated = better for diversity preservation."""
-    n = len(indices)
-    if n <= 2:
-        return {i: float('inf') for i in indices}
-
-    k = max(1, int(n ** 0.5))
-
-    # normalize objectives to [0,1] so both axes contribute equally
-    dist_vals = np.array([obj_dists[i] for i in indices])
-    score_vals = np.array([adj_scores[i] for i in indices])
-    dist_span = dist_vals.max() - dist_vals.min()
-    score_span = score_vals.max() - score_vals.min()
-    dist_norm = (dist_vals - dist_vals.min()) / dist_span if dist_span > 0 else np.zeros(n)
-    score_norm = (score_vals - score_vals.min()) / score_span if score_span > 0 else np.zeros(n)
-
-    # pairwise Euclidean distances in normalized 2D space
-    coords = np.column_stack((dist_norm, score_norm))
-    # diff[i,j] = coords[i] - coords[j]
-    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-    pair_dists = np.sqrt((diff ** 2).sum(axis=2))
-
-    diversity = {}
-    for idx_local in range(n):
-        # sort distances, skip self (index 0 after sort = 0.0)
-        sorted_dists = np.sort(pair_dists[idx_local])
-        # average of k nearest (skip self at position 0)
-        knn_avg = sorted_dists[1:k + 1].mean()
-        diversity[indices[idx_local]] = float(knn_avg)
-
-    return diversity
-
-
 def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
                  innovations: Innovations, population_size: int,
-                 best_genome: Genome):
+                 best_genome: Genome, best_ever: float = 0.0):
     """
     (μ+λ) NSGA-II-style breed for NEAT.
 
@@ -444,6 +410,17 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
             Caller scores all N together, then feeds them back next round.
     """
     raw_scores = np.array(scores, dtype=float)
+
+    # ── Score floor: cull genomes below 10% of historical best ──
+    floor = best_ever * 0.10
+    if floor > 0:
+        keep = [i for i in range(len(pool)) if raw_scores[i] >= floor]
+        if len(keep) < population_size:
+            # not enough above floor — keep top population_size by score
+            keep = list(np.argsort(raw_scores)[-population_size:])
+        pool = [pool[i] for i in keep]
+        raw_scores = raw_scores[keep]
+
     n = len(pool)
     half = population_size // 2
 
@@ -456,18 +433,32 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
         # adj_scores[ix] = raw_scores[ix] / (1 + 0.005 * excess)
         adj_scores[ix] = raw_scores[ix]
 
-    # ── Genetic distance from best ──
+    # ── KNN genetic diversity (avg distance to sqrt(n) nearest neighbors) ──
+    k_neighbors = max(1, int(n ** 0.5))
+    # pairwise genetic distance matrix
+    gen_dists = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = distance(pool[i], pool[j])
+            gen_dists[i][j] = d
+            gen_dists[j][i] = d
+    # average distance to k nearest (higher = more isolated = better)
     obj_dists = np.zeros(n)
-    for i, g in enumerate(pool):
-        # try:
-        obj_dists[i] = distance(g, best_genome)
-        # except ValueError:
-        #     # genome has no connections — maximally penalise so it doesn't
-        #     # masquerade as a best-genome clone at distance 0
-        #     obj_dists[i] = -1.0
+    for i in range(n):
+        sorted_dists = np.sort(gen_dists[i])  # self = 0.0 at index 0
+        obj_dists[i] = sorted_dists[1:k_neighbors + 1].mean()
 
     # ── Pareto rank the pool ──
-    fronts = _pareto_fronts(obj_dists, adj_scores)
+    # Scale fitness axis so it dominates diversity in Pareto ranking.
+    # A genome needs FITNESS_WEIGHT× more diversity to compensate for 1 unit of fitness loss.
+    FITNESS_WEIGHT = 10.0
+    fronts = _pareto_fronts(obj_dists, adj_scores * FITNESS_WEIGHT)
+
+    # normalize objectives to [0,1] for HV contribution (used by selection + tournament)
+    d_min, d_max = float(obj_dists.min()), float(obj_dists.max())
+    s_min, s_max = float(adj_scores.min()), float(adj_scores.max())
+    d_span = d_max - d_min if d_max > d_min else 1.0
+    s_span = s_max - s_min if s_max > s_min else 1.0
 
     # ── Select top half (survivors) front by front ──
     survivors: list[Genome] = []
@@ -477,13 +468,24 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
             for i in indices:
                 survivors.append(pool[i])
         else:
-            # partial front — iteratively remove lowest crowding distance
-            # (recompute CD after each removal for better Pareto spread)
+            # partial front — iteratively remove lowest HV contribution
             need = half - len(survivors)
             remaining = list(indices)
             while len(remaining) > need:
-                crowd = _knn_diversity(remaining, obj_dists, adj_scores)
-                worst = min(remaining, key=lambda i: crowd[i])
+                if len(remaining) <= 2:
+                    break
+                d_norm = [(obj_dists[i] - d_min) / d_span for i in remaining]
+                s_norm = [(adj_scores[i] - s_min) / s_span for i in remaining]
+                order = sorted(range(len(remaining)), key=lambda k: d_norm[k])
+                hv = {}
+                k_last = len(order) - 1
+                for pos in range(len(order)):
+                    idx = remaining[order[pos]]
+                    if pos == 0 or pos == k_last:
+                        hv[idx] = float('inf')
+                    else:
+                        hv[idx] = (d_norm[order[pos + 1]] - d_norm[order[pos]]) * (s_norm[order[pos]] - s_norm[order[pos + 1]])
+                worst = min(remaining, key=lambda i: hv[i])
                 remaining.remove(worst)
             for i in remaining:
                 survivors.append(pool[i])
@@ -491,22 +493,41 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
 
     # ── Build lookups for tournament on survivors ──
     genome_front = {}
-    genome_crowd = {}
+    genome_hv = {}   # hypervolume contribution per genome
     for i, g in enumerate(pool):
         genome_front[g] = len(fronts)
+        genome_hv[g] = 0.0
+
     for rank, mask in enumerate(fronts):
         indices = list(np.where(mask)[0])
-        crowd = _knn_diversity(indices, obj_dists, adj_scores)
         for i in indices:
             genome_front[pool[i]] = rank
-            genome_crowd[pool[i]] = crowd[i]
+        # compute HV contribution for each genome on this front
+        if len(indices) <= 1:
+            for i in indices:
+                genome_hv[pool[i]] = float('inf')
+            continue
+        # sort by normalized diversity axis ascending (score descending on Pareto front)
+        d_norm = [(obj_dists[i] - d_min) / d_span for i in indices]
+        s_norm = [(adj_scores[i] - s_min) / s_span for i in indices]
+        order = sorted(range(len(indices)), key=lambda k: d_norm[k])
+        k_last = len(order) - 1
+        for pos in range(len(order)):
+            idx = indices[order[pos]]
+            if pos == 0 or pos == k_last:
+                # boundary points always preserved — anchor the front extremes
+                hv_c = float('inf')
+            else:
+                # interior: exclusive area = (d_{i+1} - d_i) * (s_i - s_{i+1})
+                hv_c = (d_norm[order[pos + 1]] - d_norm[order[pos]]) * (s_norm[order[pos]] - s_norm[order[pos + 1]])
+            genome_hv[pool[idx]] = max(hv_c, 0.0)
 
     raw_genome_scores = {g: s for g, s in zip(pool, raw_scores)}
 
     def tournament(k=3):
         candidates = random.sample(survivors, min(k, len(survivors)))
-        # lower front wins; tiebreak: higher crowding distance (more spread out)
-        candidates.sort(key=lambda g: (genome_front[g], -genome_crowd[g]))
+        # lower front wins; tiebreak: higher hypervolume contribution
+        candidates.sort(key=lambda g: (genome_front[g], -genome_hv[g]))
         return candidates[0]
 
     # ── Breed offspring to fill second half ──
@@ -520,28 +541,68 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
         offspring.append(baby)
 
     # ── Pareto stats ──
-    f1_indices = np.where(fronts[0])[0] if fronts else np.array([], dtype=int)
-    f1_size = int(len(f1_indices))
+    front_sizes = [int(mask.sum()) for mask in fronts]
+    best_idx = int(np.argmax(raw_scores))
+    survivor_indices = [i for i, g in enumerate(pool) if g in set(survivors)]
+    survivor_scores = raw_scores[survivor_indices] if survivor_indices else np.array([0.0])
 
-    # hypervolume of F1 (area dominated by non-dominated front, ref = origin)
-    if f1_size > 0:
-        f1_dists = obj_dists[f1_indices]
-        f1_scores = adj_scores[f1_indices]
-        order = np.argsort(f1_dists)
-        xsorted = f1_dists[order]
-        ysorted = f1_scores[order]
-        prev_x = 0.0
-        hv = 0.0
-        for xi, yi in zip(xsorted, ysorted):
-            hv += (xi - prev_x) * yi
-            prev_x = xi
-    else:
-        hv = 0.0
+    # ── Front 1 metrics ──
+    f1_indices = list(np.where(fronts[0])[0]) if fronts else []
+    f1_dists = obj_dists[f1_indices] if f1_indices else np.array([0.0])
+    f1_scores = adj_scores[f1_indices] if f1_indices else np.array([0.0])
+
+    # Hypervolume: area dominated by front 1 (normalized to [0,1] on both axes)
+    hypervolume = 0.0
+    if len(f1_indices) >= 1:
+        d_min, d_max = float(obj_dists.min()), float(obj_dists.max())
+        s_min, s_max = float(adj_scores.min()), float(adj_scores.max())
+        d_span = d_max - d_min if d_max > d_min else 1.0
+        s_span = s_max - s_min if s_max > s_min else 1.0
+        f1_d_norm = (f1_dists - d_min) / d_span
+        f1_s_norm = (f1_scores - s_min) / s_span
+        order = np.argsort(f1_d_norm)
+        f1_d_sorted = f1_d_norm[order]
+        f1_s_sorted = f1_s_norm[order]
+        prev_d = 0.0
+        for i in range(len(order)):
+            width = f1_d_sorted[i] - prev_d
+            hypervolume += width * f1_s_sorted[i]
+            prev_d = f1_d_sorted[i]
+
+    # Front spread: range of each objective on front 1
+    f1_dist_spread = float(f1_dists.max() - f1_dists.min()) if len(f1_indices) >= 2 else 0.0
+    f1_score_spread = float(f1_scores.max() - f1_scores.min()) if len(f1_indices) >= 2 else 0.0
+
+    # Spacing: std of nearest-neighbor distances along front 1 (normalized 2D)
+    spacing = 0.0
+    if len(f1_indices) >= 3:
+        d_span = f1_dists.max() - f1_dists.min()
+        s_span = f1_scores.max() - f1_scores.min()
+        f1_dn = (f1_dists - f1_dists.min()) / d_span if d_span > 0 else np.zeros(len(f1_indices))
+        f1_sn = (f1_scores - f1_scores.min()) / s_span if s_span > 0 else np.zeros(len(f1_indices))
+        coords = np.column_stack((f1_dn, f1_sn))
+        diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
+        pdists = np.sqrt((diff ** 2).sum(axis=2))
+        np.fill_diagonal(pdists, np.inf)
+        nn_dists = pdists.min(axis=1)
+        spacing = float(nn_dists.std())
 
     pareto_stats = {
         'num_fronts': len(fronts),
-        'f1_size': f1_size,
-        'hypervolume': hv,
+        'f1_size': front_sizes[0] if front_sizes else 0,
+        'hypervolume': hypervolume,
+        'f1_dist_spread': f1_dist_spread,
+        'f1_score_spread': f1_score_spread,
+        'spacing': spacing,
+        'dist_mean': float(np.mean(obj_dists)),
+        'dist_std': float(np.std(obj_dists)),
+        'dist_max': float(np.max(obj_dists)),
+        'dist_min': float(np.min(obj_dists[obj_dists > 0])) if (obj_dists > 0).any() else 0.0,
+        'best_front': genome_front[pool[best_idx]],
+        'best_dist': float(obj_dists[best_idx]),
+        'survivor_mean': float(np.mean(survivor_scores)),
+        'survivor_max': float(np.max(survivor_scores)),
+        'penalty_mean': float(np.mean(raw_scores - adj_scores)),
     }
 
     # combined output: survivors + offspring, all need scoring next round

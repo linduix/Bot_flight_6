@@ -260,7 +260,7 @@ if __name__ == '__main__':
             breed_start = time.time()
             if BREED_MODE == "pareto":
                 best_genome = state['best_drone']
-                next_gen, pareto_stats = breed_pareto(state['current_gen'], scores, state['innovations'], config["population"], best_genome)
+                next_gen, pareto_stats = breed_pareto(state['current_gen'], scores, state['innovations'], config["population"], best_genome, best_ever)
                 state['current_gen'] = next_gen
                 state['gen'] += 1
             else:
