@@ -13,7 +13,7 @@ def exhibition(drones, screen_width, screen_height, meters_to_pixels, screen, cl
     target = np.array((screen_width/(2*meters_to_pixels), screen_height/(2*meters_to_pixels)))
 
     # initialize all drones
-    for name, drone, color in drones:
+    for name, drone, color, alpha in drones:
         drone.reset_state(target)
         drone.waypoint = target.copy()
 
@@ -34,7 +34,7 @@ def exhibition(drones, screen_width, screen_height, meters_to_pixels, screen, cl
 
         screen.fill((20, 20, 20))
 
-        for name, drone, color in drones:
+        for name, drone, color, alpha in drones:
             drone.waypoint = target_arr.copy()
 
             # update drone
@@ -49,22 +49,25 @@ def exhibition(drones, screen_width, screen_height, meters_to_pixels, screen, cl
                 drone.reset_state(target_arr)
 
             # draw particles and body
-            drone.draw_particles(screen, dt)
-            drone.draw_body(screen)
+            drone.draw_particles(screen, dt, a=alpha)
+            drone.draw_body(screen, a=alpha)
 
-            # draw label above drone
-            px = int(drone.pos[0] * meters_to_pixels)
-            py = int(screen_height - drone.pos[1] * meters_to_pixels) - 30
-            label_surf = label_font.render(name, True, color)
-            label_rect = label_surf.get_rect(center=(px, py))
-            screen.blit(label_surf, label_rect)
+            # draw label above drone (skip for F1 — too many overlap)
+            if not name.startswith("F1"):
+                px = int(drone.pos[0] * meters_to_pixels)
+                py = int(screen_height - drone.pos[1] * meters_to_pixels) - 30
+                label_surf = label_font.render(name, True, color)
+                label_rect = label_surf.get_rect(center=(px, py))
+                screen.blit(label_surf, label_rect)
 
         # draw target
         pg.draw.circle(screen, (100, 230, 100), (int(target[0]*meters_to_pixels), int(screen_height - target[1]*meters_to_pixels)), 2)
 
         # HUD
         info_y = 10
-        for name, drone, color in drones:
+        for name, drone, color, alpha in drones:
+            if name.startswith("F1"):
+                continue
             dx = drone.pos[0] - target[0]
             dy = drone.pos[1] - target[1]
             dist = math.hypot(dx, dy)
@@ -105,15 +108,17 @@ if __name__ == '__main__':
     if best_path.exists():
         best_state = utils.load(best_path)
         best_drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], best_state['best_drone'])
-        drones.append(("Best Save", best_drone, (100, 230, 130)))
+        drones.append(("Best Save", best_drone, (100, 230, 130), 255))
         viz_queue.put(best_drone.genome)
         print(f"Best save loaded (gen {best_state['gen']})")
 
     if utils.save_path.exists():
         current_state = utils.load()
-        current_drone = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], current_state['best_drone'])
-        drones.append(("Current Save", current_drone, (100, 160, 230)))
-        print(f"Current save loaded (gen {current_state['gen']})")
+        top = current_state['current_gen'][:10]
+        for i, g in enumerate(top):
+            d = Ai_Drone((0, 0), config['meters_to_pixels'], config["height"], g)
+            drones.append((f"F1[{i}]", d, (100, 160, 230), 70))
+        print(f"Current save loaded (gen {current_state['gen']}, showing top {len(top)} of current_gen)")
 
     if not drones:
         print("No checkpoints found.")

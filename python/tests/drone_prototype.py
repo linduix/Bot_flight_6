@@ -282,11 +282,14 @@ class Drone:
             self.spawn_particles(t2pos, self.t2angle + self.angle, a)
 
         self.particles = [p for p in self.particles if p.alive]
+        radius = max(1, int(0.07*self.mtp))
         for p in self.particles:
             p.update(dt)  # or pass dt into draw
             pix = m_to_pixel_position(p.pos, self.surface_height, self.mtp)
-            color = (255, 150, 50, p.alpha)
-            pg.draw.circle(screen, color[:3], tuple(pix.astype(int)), max(1, int(0.07*self.mtp)))
+            surf = pg.Surface((radius*2, radius*2), pg.SRCALPHA)
+            pa = max(0, min(255, int(p.alpha)))
+            pg.draw.circle(surf, (255, 150, 50, pa), (radius, radius), radius)
+            screen.blit(surf, (int(pix[0])-radius, int(pix[1])-radius))
 
     def spawn_particles(self, thruster_pos, thruster_world_angle, start_a=255):
         # emit downward relative to thruster direction

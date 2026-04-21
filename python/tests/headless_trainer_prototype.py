@@ -119,7 +119,10 @@ if __name__ == '__main__':
         done = False
         profile = False
         first = True
-        best_ever = max(state['historical_score']) if state.get('historical_score') else 0
+        if stage == 2 and state.get('validated_best_score') is not None:
+            best_ever = state['validated_best_score']
+        else:
+            best_ever = max(state['historical_score']) if state.get('historical_score') else 0
         plateau_counter = 0  # gens since global best was improved
         training_start = time.time()
 
@@ -260,7 +263,10 @@ if __name__ == '__main__':
             breed_start = time.time()
             if BREED_MODE == "pareto":
                 best_genome = state['best_drone']
-                next_gen, pareto_stats = breed_pareto(state['current_gen'], scores, state['innovations'], config["population"], best_genome, best_ever)
+                # breed floor uses training-scale reference (historical max_score),
+                # not best_ever which is validation-scale in stage 2.
+                training_best = max(state['historical_score']) if state.get('historical_score') else 0.0
+                next_gen, pareto_stats = breed_pareto(state['current_gen'], scores, state['innovations'], config["population"], best_genome, training_best)
                 state['current_gen'] = next_gen
                 state['gen'] += 1
             else:
@@ -294,33 +300,76 @@ if __name__ == '__main__':
             if stage == 2 and state.get('pool_baseline_pending', False):
                 state['pool_baseline_pending'] = False
             if stage == 2:
-                state.setdefault('best_validation_score', 0.0)
-                ix_best = int(np.argsort(scores)[-1])
-                best_genome = state['current_gen'][ix_best]
-                if use_mp:
-                    val_results = pool.starmap(stage2_vmax_test, [
-                        ([best_genome], config["width"], config["height"],
-                         config["meters_to_pixels"], limit, state['difficulty'], vs)
-                        for vs in range(11)
-                    ])
-                    val_score = float(np.mean([r[1][0] for r in val_results]))
-                else:
-                    val_total = 0.0
-                    for vs in range(11):
-                        _, vs_scores, *_ = stage2_vmax_test(
-                            [best_genome], config["width"], config["height"],
-                            config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
-                            seed=vs,
-                        )
-                        val_total += float(vs_scores[0])
-                    val_score = val_total / 11
-                if val_score > state['best_validation_score']:
-                    state['best_validation_score'] = val_score
-                    plateau_counter = 0
-                    utils.save(state, "prototype_best.pkl")
+                state.setdefault('validated_best', None)
+                val_score = None
+                # Validate only at pool-cycle boundary: head-to-head candidate vs champion
+                if state.get('pool_gen', 0) >= POOL_REFRESH_GENS:
+                    candidate = state['best_drone']
+                    champion = state.get('validated_best')
+                    if champion is None:
+                        # first cycle ever — seed the champion with current best
+                        if use_mp:
+                            seed_results = pool.starmap(stage2_vmax_test, [
+                                ([candidate], config["width"], config["height"],
+                                 config["meters_to_pixels"], limit, state['difficulty'], vs)
+                                for vs in range(11)
+                            ])
+                            cand_score = float(np.mean([r[1][0] for r in seed_results]))
+                        else:
+                            cand_total = 0.0
+                            for vs in range(11):
+                                _, vs_scores, *_ = stage2_vmax_test(
+                                    [candidate], config["width"], config["height"],
+                                    config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                                    seed=vs,
+                                )
+                                cand_total += float(vs_scores[0])
+                            cand_score = cand_total / 11
+                        state['validated_best'] = candidate
+                        state['validated_best_score'] = cand_score
+                        best_ever = cand_score
+                        val_score = cand_score
+                        plateau_counter = 0
+                        utils.save(state, "prototype_best.pkl")
+                        print(f'  VAL SEED  champion initialized at {cand_score:.4f}')
+                    else:
+                        # head-to-head across 11 validation seeds at current difficulty
+                        if use_mp:
+                            val_results = pool.starmap(stage2_vmax_test, [
+                                ([candidate, champion], config["width"], config["height"],
+                                 config["meters_to_pixels"], limit, state['difficulty'], vs)
+                                for vs in range(11)
+                            ])
+                            cand_score = float(np.mean([r[1][0] for r in val_results]))
+                            champ_score = float(np.mean([r[1][1] for r in val_results]))
+                        else:
+                            cand_total = 0.0
+                            champ_total = 0.0
+                            for vs in range(11):
+                                _, vs_scores, *_ = stage2_vmax_test(
+                                    [candidate, champion], config["width"], config["height"],
+                                    config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                                    seed=vs,
+                                )
+                                cand_total += float(vs_scores[0])
+                                champ_total += float(vs_scores[1])
+                            cand_score = cand_total / 11
+                            champ_score = champ_total / 11
+                        val_score = cand_score
+                        if cand_score > champ_score:
+                            state['validated_best'] = candidate
+                            state['validated_best_score'] = cand_score
+                            best_ever = cand_score
+                            plateau_counter = 0
+                            utils.save(state, "prototype_best.pkl")
+                            print(f'  VAL PASS  candidate {cand_score:.4f} > champion {champ_score:.4f}')
+                        else:
+                            state['validated_best_score'] = champ_score
+                            best_ever = champ_score
+                            plateau_counter += 1
+                            print(f'  VAL FAIL  candidate {cand_score:.4f} <= champion {champ_score:.4f}')
                 else:
                     plateau_counter += 1
-                best_ever = state['best_validation_score']
             elif stage == 1:
                 if max_score > best_ever:
                     # Score beaten — pit candidate against current best
@@ -493,12 +542,35 @@ if __name__ == '__main__':
                 state['stage'] = 2
                 limit = 15
                 state['historical_score'] = []
-                best_ever = 0
                 plateau_counter = 0
-                state['best_validation_score'] = 0.0
                 state['species'] = []
                 first = True
+
+                # Seed validated champion with current gen's best on stage 2's val set
+                candidate = state['best_drone']
+                if use_mp:
+                    seed_results = pool.starmap(stage2_vmax_test, [
+                        ([candidate], config["width"], config["height"],
+                         config["meters_to_pixels"], limit, state['difficulty'], vs)
+                        for vs in range(11)
+                    ])
+                    cand_score = float(np.mean([r[1][0] for r in seed_results]))
+                else:
+                    cand_total = 0.0
+                    for vs in range(11):
+                        _, vs_scores, *_ = stage2_vmax_test(
+                            [candidate], config["width"], config["height"],
+                            config["meters_to_pixels"], limit=limit, diff=state['difficulty'],
+                            seed=vs,
+                        )
+                        cand_total += float(vs_scores[0])
+                    cand_score = cand_total / 11
+                state['validated_best'] = candidate
+                state['validated_best_score'] = cand_score
+                best_ever = cand_score
+                print(f'  STAGE 2 SEED  champion initialized at {cand_score:.4f}')
                 utils.save(state)
+                utils.save(state, "prototype_best.pkl")
 
             # save progress every 500 gens
             if state['gen'] % 100 == 0:
