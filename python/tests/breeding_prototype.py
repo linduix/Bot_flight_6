@@ -434,19 +434,16 @@ def breed_pareto(pool: list[Genome], scores: list[float] | np.ndarray,
         adj_scores[ix] = raw_scores[ix]
 
     # ── KNN genetic diversity (avg distance to sqrt(n) nearest neighbors) ──
+    # Approximate via random sampling instead of full O(n²) pairwise matrix.
+    # Sample 4×k_neighbors candidates per genome — good enough for ranking diversity.
     k_neighbors = max(1, int(n ** 0.5))
-    # pairwise genetic distance matrix
-    gen_dists = np.zeros((n, n))
-    for i in range(n):
-        for j in range(i + 1, n):
-            d = distance(pool[i], pool[j])
-            gen_dists[i][j] = d
-            gen_dists[j][i] = d
-    # average distance to k nearest (higher = more isolated = better)
+    sample_size = min(n - 1, max(k_neighbors * 4, 30))
     obj_dists = np.zeros(n)
     for i in range(n):
-        sorted_dists = np.sort(gen_dists[i])  # self = 0.0 at index 0
-        obj_dists[i] = sorted_dists[1:k_neighbors + 1].mean()
+        candidates = random.sample([j for j in range(n) if j != i], sample_size)
+        dists = [distance(pool[i], pool[j]) for j in candidates]
+        dists.sort()
+        obj_dists[i] = float(np.mean(dists[:k_neighbors]))
 
     # ── Pareto rank the pool ──
     # Scale fitness axis so it dominates diversity in Pareto ranking.
