@@ -47,7 +47,15 @@ def mutate_mutation_power(genome):
         genome.mutation_power *= np.exp(MUTATION_POWER_TAU * np.random.randn() - 0.5 * MUTATION_POWER_TAU**2)
     genome.mutation_power = np.clip(genome.mutation_power, MUTATION_POWER_MIN, MUTATION_POWER_MAX)
 
+MAX_HIDDEN_NODES = 16
+# 9×8×8×2 equivalent: 9*8 + 8*8 + 8*2 = 72 + 64 + 16
+MAX_ENABLED_CONNECTIONS = 152
+
 def add_connection(genome: Genome, innovations: Innovations, weight=None):
+    # enforce enabled connection cap
+    if sum(1 for c in genome.connections if c.enabled) >= MAX_ENABLED_CONNECTIONS:
+        return
+
     # get all node ids and existing connections
     pairs = [(c.input, c.output) for c in genome.connections]
 
@@ -68,8 +76,6 @@ def add_connection(genome: Genome, innovations: Innovations, weight=None):
         genome.invalidate_cache()
         break
 
-MAX_HIDDEN_NODES = 32
-
 def add_node(genome: Genome, innovations: Innovations):
     if not genome.connections:
         return
@@ -77,6 +83,10 @@ def add_node(genome: Genome, innovations: Innovations):
     # cap hidden node count
     hidden_count = sum(1 for n in genome.nodes if n.node_type == NodeType.HIDDEN)
     if hidden_count >= MAX_HIDDEN_NODES:
+        return
+
+    # adding a node nets +1 enabled connection — respect the cap
+    if sum(1 for c in genome.connections if c.enabled) >= MAX_ENABLED_CONNECTIONS:
         return
 
     # choose random connection to split
@@ -201,6 +211,8 @@ def delete_node(genome: Genome):
 
 def reenable_connection(genome: Genome):
     """Re-enable a random disabled connection, only if both endpoint nodes still exist."""
+    if sum(1 for c in genome.connections if c.enabled) >= MAX_ENABLED_CONNECTIONS:
+        return
     node_ids = {n.id for n in genome.nodes}
     candidates = [c for c in genome.connections if not c.enabled and c.input in node_ids and c.output in node_ids]
     if not candidates:
