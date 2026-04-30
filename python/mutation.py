@@ -1,4 +1,4 @@
-from genome_prototype import NodeGene, ConnectionGene, create_connection, NodeType, Genome
+from genome import NodeGene, ConnectionGene, create_connection, NodeType, Genome
 import numpy as np
 
 class Innovations:

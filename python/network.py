@@ -1,4 +1,4 @@
-from genome_prototype import Genome, NodeType, ConnectionGene
+from genome import Genome, NodeType, ConnectionGene
 import numpy as np
 import math
 from numba import njit

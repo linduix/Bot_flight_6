@@ -1,5 +1,5 @@
-from mutation_prototype import Innovations, mutate
-from genome_prototype import Genome, ConnectionGene, NodeGene, NodeType
+from mutation import Innovations, mutate
+from genome import Genome, ConnectionGene, NodeGene, NodeType
 import numpy as np
 from copy import copy, deepcopy
 import random

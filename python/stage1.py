@@ -1,4 +1,4 @@
-from drone_prototype import Ai_Drone
+from drone import Ai_Drone
 from numba import njit
 import math
 import numpy as np

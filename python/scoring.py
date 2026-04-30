@@ -1,5 +1,5 @@
 from numpy.random.mtrand import standard_cauchy
-from drone_prototype import Ai_Drone
+from drone import Ai_Drone
 import math
 import numpy as np
 

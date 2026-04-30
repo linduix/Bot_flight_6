@@ -1,8 +1,8 @@
-from drone_prototype import Ai_Drone
-from prototype_stage1 import HOVER_DIST, HOVER_VEL, FEATHER_K, BRAKE_ZONE
+from drone import Ai_Drone
+from stage1 import HOVER_DIST, HOVER_VEL, FEATHER_K, BRAKE_ZONE
 import math
 import numpy as np
-from prototype_stage1 import math_shit
+from stage1 import math_shit
 
 # ── Constants ────────────────────────────────────────────────────────────────
 CAPTURE_RADIUS    = 0.5     # meters — touch-to-capture for non-dwell waypoints

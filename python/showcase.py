@@ -1,5 +1,5 @@
-from drone_prototype import Ai_Drone
-import util_prototype as utils
+from drone import Ai_Drone
+import util as utils
 import multiprocessing as mp
 import pygame as pg
 import numpy as np

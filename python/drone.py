@@ -1,8 +1,8 @@
 import pygame as pg
 import numpy as np
 import math
-from network_prototype import NeatNN_fast
-from genome_prototype import Genome
+from network import NeatNN_fast
+from genome import Genome
 from numba import njit
 
 def rotate_vector(v, angle):

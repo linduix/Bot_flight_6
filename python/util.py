@@ -1,5 +1,5 @@
 from pathlib import Path
-from genome_prototype import NodeType
+from genome import NodeType
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 import networkx as nx
@@ -11,7 +11,7 @@ import pickle
 import queue
 import time
 
-checkpoint_dir = Path(__file__).parent.parent.parent / "data" / "checkpoints"
+checkpoint_dir = Path(__file__).parent.parent / "data" / "checkpoints"
 save_path = checkpoint_dir / "prototype_save.pkl"
 def save(state: dict, filename: str = "prototype_save.pkl"):
     path = checkpoint_dir / filename
@@ -28,11 +28,28 @@ def save(state: dict, filename: str = "prototype_save.pkl"):
         print(f'  state keys: {list(state.keys())}')
         traceback.print_exc()
 
+_MODULE_REMAP = {
+    'genome_prototype':           'genome',
+    'network_prototype':          'network',
+    'drone_prototype':            'drone',
+    'mutation_prototype':         'mutation',
+    'breeding_prototype':         'breeding',
+    'scoring_prototype':          'scoring',
+    'prototype_stage1':           'stage1',
+    'prototype_stage2':           'stage2',
+    'util_prototype':             'util',
+}
+
+class _Unpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        module = _MODULE_REMAP.get(module, module)
+        return super().find_class(module, name)
+
 def load(path=None):
     p = path or save_path
     with open(p, 'rb') as f:
         print(f'loading {p}')
-        state = pickle.load(f)
+        state = _Unpickler(f).load()
     return state
 
 # ─── Shared helpers ───────────────────────────────────────────────────────────

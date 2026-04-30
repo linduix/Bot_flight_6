@@ -1,13 +1,13 @@
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-from scoring_prototype import hover_scorer_headless
-from prototype_stage1 import stage1_vmax_test
-from prototype_stage2 import stage2_vmax_test, POOL_REFRESH_GENS, NUM_WAYPOINTS
-from mutation_prototype import Innovations, add_connection
-from genome_prototype import Genome, NodeType
-from breeding_prototype import breed, breed_pareto, STAGNATION_CHANCES, STAGNATION_LIMIT
+from scoring import hover_scorer_headless
+from stage1 import stage1_vmax_test
+from stage2 import stage2_vmax_test, POOL_REFRESH_GENS, NUM_WAYPOINTS
+from mutation import Innovations, add_connection
+from genome import Genome, NodeType
+from breeding import breed, breed_pareto, STAGNATION_CHANCES, STAGNATION_LIMIT
 from dotenv import load_dotenv
-import util_prototype as utils
+import util as utils
 import numpy as np
 import multiprocessing as mp
 import cProfile
@@ -45,7 +45,7 @@ if __name__ == '__main__':
             if not hasattr(s, 'id'):
                 s.id = i  # backfill legacy species with unique index
         if state.get('species'):
-            from breeding_prototype import Species
+            from breeding import Species
             Species._next_id = max(s.id for s in state['species']) + 1
         # patch old Genome objects missing new fields
         for g in state.get('current_gen', []):

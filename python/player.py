@@ -1,7 +1,7 @@
 from threading import RLock
 import pygame as pg
 import numpy as np
-from drone_prototype import Drone
+from drone import Drone
 import sys
 import math
 
